@@ -125,21 +125,62 @@ python scripts/verify_features.py
 
 Expected output: real numbers for `amt`, `lat`, `long`, etc. — not `[None]`.
 
-### 6. (Sessions 2+) Bring up the FastAPI service
+### 6. Build and bring up the FastAPI inference service
 
-Coming next:
+> **Prerequisites — do not skip:** steps 4 and 5 above must have run
+> successfully. The API container loads the model from the MLflow
+> Registry on startup (step 4) and reads `feast_repo/data/registry.db`
+> from inside the image (step 5). If you start the api before those
+> exist, it will crash-loop with `RuntimeError: No 'Production' version
+> found ...` or a Feast registry error.
+
+The API image bakes in `feast_repo/data/registry.db` and
+`training/features.parquet` at build time, so any retrain or
+re-materialize on the host needs a fresh `build` to take effect:
 
 ```bash
+docker compose build api
 docker compose up -d api
+docker compose ps              # api should report (healthy) within ~30s
+docker compose logs -f api     # watch the lifespan: model load + Feast init
+```
+
+Smoke test all four endpoints:
+
+```bash
+# Liveness — returns {"status": "healthy", "model_version": "<v>"}
 curl http://localhost:8000/health
-curl -X POST http://localhost:8000/predict -d @training/sample_request.json
+
+# Predict via POST (uses the sample body written by train.py)
+curl -X POST http://localhost:8000/predict \
+     -H 'content-type: application/json' \
+     -d @training/sample_request.json
+
+# Predict via GET — ?explain=true also returns the raw feature values
+ENTITY_ID=$(python -c 'import json; print(json.load(open("training/sample_request.json"))["entity_id"])')
+curl "http://localhost:8000/predict/${ENTITY_ID}?explain=true"
+
+# Prometheus metrics
+curl http://localhost:8000/metrics | head -30
+```
+
+OpenAPI docs are at <http://localhost:8000/docs>.
+
+### TL;DR — bring everything up at once (after first-time setup)
+
+Once steps 1-5 have run on this machine at least once, restarting the
+whole stack is a one-liner. The compose dependency graph
+(`api → mlflow → postgres`, `api → redis`) makes sure they come up in
+the right order:
+
+```bash
+docker compose up -d
+docker compose ps     # all four services should be (healthy)
 ```
 
 ---
 
 ## REST Endpoints
-
-> Implemented in Session 2.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -191,12 +232,17 @@ All variables live in `.env` (gitignored). See [`.env.example`](.env.example) fo
 
 | Task | Command |
 |---|---|
-| Bring stack up | `docker compose up -d postgres redis mlflow` |
+| Bring data plane up (first-time setup) | `docker compose up -d postgres redis mlflow` |
+| Bring everything up (after train + materialize) | `docker compose up -d` |
+| Rebuild API image after retrain or re-materialize | `docker compose build api && docker compose up -d api` |
 | Tear stack down (keep data) | `docker compose down` |
-| Tear stack down (wipe volumes) | `docker compose down -v` |
+| Tear stack down (wipe volumes — full reset) | `docker compose down -v` |
 | Re-train and re-register | `python training/train.py` |
 | Re-apply schema + materialize | `python scripts/materialize_features.py` |
-| Smoke test online lookup | `python scripts/verify_features.py` |
+| Smoke test online lookup (host) | `python scripts/verify_features.py` |
+| Smoke test API health | `curl http://localhost:8000/health` |
+| Smoke test API predict | `curl -X POST http://localhost:8000/predict -H 'content-type: application/json' -d @training/sample_request.json` |
+| Tail API logs | `docker compose logs -f api` |
 | List Redis feature keys | `redis-cli keys '*' \| head` |
 
 ---

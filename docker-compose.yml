@@ -16,6 +16,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
     ports:
       - "6379:6379"
     healthcheck:
@@ -47,9 +50,35 @@ services:
       retries: 10
     networks: [modelserve]
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: ${MODEL_NAME:-fraud-detector}
+      MODEL_STAGE: ${MODEL_STAGE:-Production}
+      FEAST_REPO_PATH: /app/feast_repo
+      REDIS_CONNECTION_STRING: redis:6379
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/health\",timeout=3).status==200 else 1)'"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    networks: [modelserve]
+
 volumes:
   postgres_data:
   mlflow_artifacts:
+  redis_data:
 
 networks:
   modelserve:
