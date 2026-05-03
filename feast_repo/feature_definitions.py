@@ -1,26 +1,62 @@
-# ============================================================================
-# ModelServe — Feast Feature Definitions
-# ============================================================================
-# TODO: Define your Feast entities, data sources, and feature views.
-#
-# You need to create:
-#
-#   1. Entity — the credit card number (cc_num) from the dataset
-#      - This is the join key for feature lookups
-#
-#   2. FileSource (or S3 source) — points to your features.parquet file
-#      - Must specify the timestamp_field for point-in-time joins
-#
-#   3. FeatureView — maps the entity to features from the data source
-#      - List every feature with its data type (Float64, Int64, String, etc.)
-#      - Set a TTL (time-to-live) for feature freshness
-#
-# The features defined here must match exactly what train.py exports
-# to features.parquet and what the FastAPI service requests from Feast.
-#
-# After defining these, run:
-#   cd feast_repo && feast apply
-#   python scripts/materialize_features.py
-#
-# Refer to Feast documentation: https://docs.feast.dev/
-# ============================================================================
+"""Feast entities, source, and feature view for the fraud-detection model.
+
+The schema here must match exactly what train.py writes to features.parquet
+and what app/feature_client.py requests at inference time. If these three
+ever drift, Feast will silently return [None] for the missing columns.
+"""
+from __future__ import annotations
+
+from datetime import timedelta
+from pathlib import Path
+
+from feast import Entity, FeatureView, Field, FileSource
+from feast.types import Float64, Int64
+
+
+PARQUET_PATH = str(
+    (Path(__file__).resolve().parent.parent / "training" / "features.parquet")
+)
+
+# ---------------------------------------------------------------------------
+# Entity — the join key for online lookups
+# ---------------------------------------------------------------------------
+cc_num = Entity(
+    name="cc_num",
+    join_keys=["cc_num"],
+    description="Credit card number — join key for transaction features.",
+)
+
+# ---------------------------------------------------------------------------
+# Source — where the offline (training-time) features live
+# ---------------------------------------------------------------------------
+fraud_source = FileSource(
+    name="fraud_features_source",
+    path=PARQUET_PATH,
+    timestamp_field="event_timestamp",
+    created_timestamp_column="created",
+)
+
+# ---------------------------------------------------------------------------
+# FeatureView — what the online store will hold and serve
+# ---------------------------------------------------------------------------
+fraud_features = FeatureView(
+    name="fraud_features",
+    entities=[cc_num],
+    ttl=timedelta(days=365 * 5),
+    schema=[
+        Field(name="amt", dtype=Float64),
+        Field(name="lat", dtype=Float64),
+        Field(name="long", dtype=Float64),
+        Field(name="city_pop", dtype=Int64),
+        Field(name="merch_lat", dtype=Float64),
+        Field(name="merch_long", dtype=Float64),
+        Field(name="hour", dtype=Int64),
+        Field(name="day_of_week", dtype=Int64),
+        Field(name="month", dtype=Int64),
+        Field(name="age", dtype=Int64),
+        Field(name="category_code", dtype=Int64),
+        Field(name="gender_code", dtype=Int64),
+    ],
+    source=fraud_source,
+    online=True,
+)

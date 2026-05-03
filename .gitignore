@@ -1,10 +1,42 @@
-# TODO: Review and extend this .gitignore for your project.
-# Consider what files should never be committed:
-#   - Environment files with secrets (.env)
-#   - Python bytecode and virtual environments
-#   - Model artifacts (stored in MLflow, not git)
-#   - Large data files (downloaded from Kaggle, not git)
-#   - Pulumi stack configuration with secrets
-#   - IDE and OS files
-#   - Docker build artifacts
-#   - Test coverage reports
+# Secrets / env
+.env
+.env.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Kaggle dataset (downloaded locally, never committed)
+/fraud-detection/*
+
+# MLflow local file backends (only created if someone runs `mlflow ui` locally)
+mlartifacts/
+mlruns/
+
+# NOTE: training/features.parquet and training/sample_request.json are NOT
+# ignored — they are produced by train.py and committed so a fresh clone can
+# bootstrap Feast and the TA's curl test without re-running training first.
+
+# Feast generated state (created by `feast apply` / `materialize`)
+feast_repo/data/registry.db
+feast_repo/data/online_store.db
+feast_repo/.feast/
+
+# Pulumi (Sessions 5-7) — keep Pulumi.yaml, exclude per-stack state
+infrastructure/Pulumi.*.yaml
+!infrastructure/Pulumi.yaml
+infrastructure/.venv/
+
+# Docker / OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
