@@ -1,0 +1,41 @@
+# Runtime dependencies for the FastAPI inference image.
+#
+# This is a deliberately trimmed subset of requirements.txt — the host
+# venv keeps the full set (mlflow server, pytest, etc.) for training,
+# debugging, and running tests. The container only carries what the
+# API process actually imports at runtime.
+#
+# Trimmed from requirements.txt:
+#   - mlflow           → mlflow-skinny (drops alembic, sqlalchemy,
+#                        flask, gunicorn-server, gitpython — ~150 MB)
+#   - boto3            removed (transitive of full mlflow; we use the
+#                      MLflow HTTP artifact proxy, not S3 directly)
+#   - psycopg2-binary  removed (API talks to MLflow over HTTP, never
+#                      to Postgres directly)
+#   - pytest, httpx    removed (test-only)
+
+# Web framework
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+gunicorn==21.2.0
+pydantic==2.6.1
+
+# ML stack (model is sklearn; pandas/pyarrow back Feast and DataFrames)
+scikit-learn==1.4.1.post1
+pandas==2.2.0
+numpy==1.26.4
+pyarrow==15.0.0
+
+# MLflow client only — supports MlflowClient + mlflow.sklearn.load_model
+mlflow-skinny==2.11.1
+# mlflow-skinny still imports pkg_resources, which setuptools 81+ removed
+setuptools<81
+
+# Feature store (the [redis] extra installs the Redis online-store driver)
+feast[redis]==0.40.0
+
+# Prometheus /metrics endpoint
+prometheus-client==0.20.0
+
+# Loads .env into os.environ when the image is run outside compose
+python-dotenv==1.0.1

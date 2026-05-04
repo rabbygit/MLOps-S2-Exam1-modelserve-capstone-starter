@@ -5,8 +5,11 @@
 A production-grade ML serving platform built around a fraud-detection model.
 The model is trained on the Kaggle fraud-detection dataset, registered in
 MLflow, served from FastAPI, and looks up online features from Redis through
-Feast. Sessions 1-2 deliver the local stack; later sessions add observability
-(Prometheus + Grafana), AWS infrastructure (Pulumi), and CI/CD (GitHub Actions).
+Feast. Sessions 1-2 deliver the local stack and inference API; Sessions 3-4
+harden containerization (multi-stage Dockerfile, non-root user, < 800 MB image)
+and add observability (Prometheus + Grafana with provisioned dashboards and
+alert rules). Later sessions add AWS infrastructure (Pulumi) and CI/CD
+(GitHub Actions).
 
 ---
 
@@ -166,16 +169,63 @@ curl http://localhost:8000/metrics | head -30
 
 OpenAPI docs are at <http://localhost:8000/docs>.
 
+### 7. Bring up Prometheus and Grafana
+
+Prometheus and Grafana come up alongside everything else with `docker compose
+up -d` — no extra step. They're listed separately here because the
+verification flow is different from the API:
+
+```bash
+docker compose up -d                # brings up prometheus + grafana too
+docker compose ps                   # six services, all (healthy)
+```
+
+Prometheus targets page — both `prometheus` and `modelserve-api` should be
+green / UP:
+
+```bash
+open http://localhost:9090/targets
+```
+
+Alerts page — four rules (APIServiceDown, HighPredictionLatencyP95,
+HighPredictionErrorRate, FeastHighMissRate) should be listed:
+
+```bash
+open http://localhost:9090/alerts
+```
+
+Grafana — login is `admin` / `admin` (or whatever
+`GF_SECURITY_ADMIN_PASSWORD` is set to in `.env`). The
+**ModelServe — Inference Service** dashboard auto-loads under the General
+folder via provisioning:
+
+```bash
+open http://localhost:3000
+```
+
+To populate the dashboard with data, hammer `/predict` for a minute:
+
+```bash
+for i in $(seq 1 200); do
+  curl -s -X POST http://localhost:8000/predict \
+    -H 'content-type: application/json' \
+    -d @training/sample_request.json > /dev/null
+done
+```
+
+You should see Total Requests jump, Request Rate spike, and the latency
+percentile panel populate.
+
 ### TL;DR — bring everything up at once (after first-time setup)
 
 Once steps 1-5 have run on this machine at least once, restarting the
 whole stack is a one-liner. The compose dependency graph
-(`api → mlflow → postgres`, `api → redis`) makes sure they come up in
-the right order:
+(`api → mlflow → postgres`, `api → redis`, `grafana → prometheus`)
+brings every service up in the right order:
 
 ```bash
 docker compose up -d
-docker compose ps     # all four services should be (healthy)
+docker compose ps     # all six services should be (healthy)
 ```
 
 ---
@@ -187,7 +237,75 @@ docker compose ps     # all four services should be (healthy)
 | `GET`  | `/health` | Liveness probe — returns `{"status": "healthy", "model_version": "<v>"}` |
 | `POST` | `/predict` | Predict on `{"entity_id": <cc_num>}`; returns prediction + probability + version + timestamp |
 | `GET`  | `/predict/<id>?explain=true` | Same as POST `/predict` plus the feature values that were used |
-| `GET`  | `/metrics` | Prometheus metrics text |
+| `GET`  | `/metrics` | Prometheus metrics text — scraped every 15 s by the `prometheus` container |
+
+---
+
+## Observability (Sessions 3-4)
+
+### URLs
+
+| Service | URL | Login |
+|---|---|---|
+| FastAPI | <http://localhost:8000/docs> | — |
+| MLflow | <http://localhost:5000> | — |
+| Prometheus | <http://localhost:9090> | — |
+| Grafana | <http://localhost:3000> | `admin` / `${GF_SECURITY_ADMIN_PASSWORD:-admin}` |
+
+### Metrics exposed by the API
+
+Defined in [`app/metrics.py`](app/metrics.py); registered in `app/main.py` at the `/metrics` route.
+
+| Metric | Type | Notes |
+|---|---|---|
+| `prediction_requests_total` | Counter | One increment per `/predict` call |
+| `prediction_duration_seconds` | Histogram | Buckets cover 5 ms → 5 s; latency percentiles come from `_bucket` series |
+| `prediction_errors_total{reason}` | Counter | `reason` label is `missing_features` (404) or `model_error` (500) |
+| `model_version_info{version}` | Gauge | Set once at startup with the loaded version as a label |
+| `feast_online_store_hits_total` | Counter | Incremented when Feast returns a full feature row |
+| `feast_online_store_misses_total` | Counter | Incremented when at least one feature is `None` |
+
+### Provisioned Grafana dashboard
+
+`monitoring/grafana/dashboards/modelserve.json` is loaded automatically via
+the file provider at `monitoring/grafana/provisioning/dashboards/dashboard.yml`.
+Eight panels cover: Model Version, Total Requests, Total Errors, Feast Hit
+Ratio, Request Rate, Error Rate (broken down by reason), Latency
+p50 / p95 / p99, and Hits vs Misses (stacked).
+
+### Alert rules
+
+`monitoring/prometheus/alerts.yml` defines four rules:
+
+| Alert | Severity | Trigger |
+|---|---|---|
+| `APIServiceDown` | critical | `up{job="modelserve-api"} == 0` for 1 m |
+| `HighPredictionLatencyP95` | warning | p95 latency > 500 ms for 5 m |
+| `HighPredictionErrorRate` | warning | error rate > 5% for 2 m (with traffic floor to avoid flapping) |
+| `FeastHighMissRate` | warning | Feast miss ratio > 20% for 5 m |
+
+To trigger `HighPredictionErrorRate` on demand for a demo:
+
+```bash
+for i in $(seq 1 100); do
+  curl -s -X POST http://localhost:8000/predict \
+    -H 'content-type: application/json' \
+    -d '{"entity_id": 0}' > /dev/null
+done
+# Wait ~3 minutes, then refresh http://localhost:9090/alerts
+```
+
+### Reload Prometheus rules without restart
+
+Edit `monitoring/prometheus/alerts.yml`, then:
+
+```bash
+docker compose kill -s SIGHUP prometheus
+# or:
+curl -X POST http://localhost:9090/-/reload
+```
+
+`--web.enable-lifecycle` is set on the prometheus service so this works.
 
 ---
 
@@ -244,6 +362,12 @@ All variables live in `.env` (gitignored). See [`.env.example`](.env.example) fo
 | Smoke test API predict | `curl -X POST http://localhost:8000/predict -H 'content-type: application/json' -d @training/sample_request.json` |
 | Tail API logs | `docker compose logs -f api` |
 | List Redis feature keys | `redis-cli keys '*' \| head` |
+| Reload Prometheus rules | `docker compose kill -s SIGHUP prometheus` |
+| Open Prometheus targets | `open http://localhost:9090/targets` |
+| Open Grafana | `open http://localhost:3000` |
+| Tail Grafana provisioning logs | `docker compose logs grafana \| grep -iE 'provision\|datasource\|dashboard'` |
+| Verify image size (< 800 MB) | `docker images mlops-s2-exam1-modelserve-capstone-starter-api --format '{{.Size}}'` |
+| Verify api runs as non-root | `docker compose exec api id` |
 
 ---
 
@@ -251,18 +375,33 @@ All variables live in `.env` (gitignored). See [`.env.example`](.env.example) fo
 
 ```
 modelserve/
-├── app/                  FastAPI inference service (Session 2)
-├── training/             train.py + features.parquet + sample_request.json
-├── feast_repo/           Feast feature definitions and registry
-├── scripts/              materialize + verify helpers
-├── infrastructure/       Pulumi program (Sessions 5-7)
-├── monitoring/           Prometheus + Grafana config (Sessions 3-4)
-├── docs/                 ARCHITECTURE.md + diagrams
-├── .github/workflows/    CI/CD pipeline (Sessions 8-9)
-├── docker-compose.yml    Local stack
-├── Dockerfile            FastAPI image
-├── Dockerfile.mlflow     MLflow tracking server image
-└── .env.example          Host-side env template
+├── app/                                FastAPI inference service (Session 2)
+│   ├── main.py                         endpoints + lifespan
+│   ├── model_loader.py                 MLflow Registry client
+│   ├── feature_client.py               Feast online lookup wrapper
+│   └── metrics.py                      Prometheus counters/histograms
+├── training/                           train.py + features.parquet + sample_request.json
+├── feast_repo/                         Feast feature definitions and registry
+├── scripts/                            materialize + verify helpers
+├── monitoring/                         Prometheus + Grafana (Sessions 3-4)
+│   ├── prometheus/
+│   │   ├── prometheus.yml              scrape config + rule_files
+│   │   └── alerts.yml                  4 alert rules
+│   └── grafana/
+│       ├── provisioning/
+│       │   ├── datasources/prometheus.yml   auto-wires Prometheus as datasource
+│       │   └── dashboards/dashboard.yml     file-provider config
+│       └── dashboards/modelserve.json  the actual dashboard
+├── infrastructure/                     Pulumi program (Sessions 5-7)
+├── docs/                               ARCHITECTURE.md + diagrams
+├── .github/workflows/                  CI/CD pipeline (Sessions 8-9)
+├── docker-compose.yml                  Local stack (6 services)
+├── Dockerfile                          FastAPI image (multi-stage, non-root, < 800 MB)
+├── Dockerfile.mlflow                   MLflow tracking server image
+├── requirements.txt                    Host venv (full mlflow, pytest, etc.)
+├── requirements-api.txt                API runtime deps (mlflow-skinny, no boto3)
+├── .dockerignore                       Trims build context
+└── .env.example                        Host-side env template
 ```
 
 ---

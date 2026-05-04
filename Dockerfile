@@ -1,48 +1,89 @@
-# ============================================================================
-# ModelServe — FastAPI Inference Service Dockerfile
-# ============================================================================
-# TODO: Implement a multi-stage Docker build.
-#
-# Requirements:
-#   - Multi-stage build (at least two FROM statements)
-#   - Final image must be under 800 MB
-#   - Must run as a non-root user
-#   - Must use a production WSGI/ASGI server (gunicorn with uvicorn workers)
-#   - Must include a HEALTHCHECK directive
-#   - Must copy only what's needed (use .dockerignore too)
-#
-# Suggested stages:
-#   Stage 1 (builder):
-#     - Start from python:3.10-slim
-#     - Install build dependencies (gcc, etc.)
-#     - Copy requirements.txt and install Python packages
-#
-#   Stage 2 (runtime):
-#     - Start from python:3.10-slim (clean)
-#     - Copy installed packages from builder stage
-#     - Copy application code
-#     - Create a non-root user and switch to it
-#     - Expose the service port
-#     - Set the healthcheck
-#     - Define the CMD with gunicorn/uvicorn
-# ============================================================================
+###########
+# BUILDER #
+###########
 
-FROM python:3.10-slim
+# pull official base image
+FROM python:3.10-slim-bookworm AS builder
 
-WORKDIR /app
+# set working directory
+WORKDIR /usr/src/app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+# set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# install system dependencies — only what's needed to compile any
+# wheels that don't ship a manylinux binary
+RUN apt-get update \
+  && apt-get -y install --no-install-recommends build-essential gcc \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
+# install python dependencies
+RUN pip install --upgrade pip
+COPY ./requirements-api.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements-api.txt
+
+
+#########
+# FINAL #
+#########
+
+# pull official base image
+FROM python:3.10-slim-bookworm
+
+# create the app user (system account; home dir not needed for runtime)
+RUN addgroup --system app && adduser --system --group app
+
+# application root
+ENV APP_HOME=/app
+RUN mkdir -p $APP_HOME
+WORKDIR $APP_HOME
+
+# set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV ENVIRONMENT prod
+ENV PORT 8000
+
+# install python dependencies + strip dev-only artefacts in a SINGLE
+# RUN. Cleaning in a later RUN doesn't shrink the image — Docker layers
+# are immutable, so the bytes have to be deleted in the same layer they
+# were created in. --no-compile skips pip's byte-compilation step so we
+# don't waste time generating .pyc files we're about to delete.
+COPY --from=builder /usr/src/app/wheels /wheels
+COPY --from=builder /usr/src/app/requirements-api.txt .
+RUN pip install --upgrade pip \
+  && pip install --no-cache --no-compile /wheels/* \
+  && pip install --no-cache --no-compile -r requirements-api.txt \
+  && rm -rf /wheels \
+  && find /usr/local/lib/python3.10/site-packages -depth \
+       \( -type d \( -name '__pycache__' -o -name 'tests' -o -name 'test' \) \
+          -o -name '*.pyc' -o -name '*.pyo' \) \
+       -exec rm -rf '{}' + 2>/dev/null || true
+
+# add app — only the artefacts the runtime actually needs
 COPY app ./app
 COPY feast_repo ./feast_repo
 COPY training/features.parquet ./training/features.parquet
 COPY training/sample_request.json ./training/sample_request.json
 
+# chown all the files to the app user
+RUN chown -R app:app $APP_HOME
+
+# change to the app user
+USER app
+
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"
+
+# run gunicorn with uvicorn workers (FastAPI is ASGI)
+CMD gunicorn --bind 0.0.0.0:$PORT app.main:app \
+  -k uvicorn.workers.UvicornWorker \
+  -w 2 \
+  --access-logfile - \
+  --error-logfile - \
+  --timeout 60 \
+  --graceful-timeout 30

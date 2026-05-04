@@ -1,30 +1,81 @@
-# ============================================================================
-# ModelServe — Prometheus Alert Rules
-# ============================================================================
-# TODO: Define at least THREE alert rules.
+# Prometheus alert rules for ModelServe.
 #
-# Required alerts:
-#   1. High prediction latency
-#      - Trigger when p95 latency exceeds your chosen threshold for 5 minutes
-#      - Hint: histogram_quantile(0.95, rate(prediction_duration_seconds_bucket[5m]))
-#      - Severity: warning
+# Mounted at /etc/prometheus/alerts.yml in the prometheus container,
+# referenced from prometheus.yml's `rule_files`. Reload Prometheus
+# (`docker compose kill -s SIGHUP prometheus`) after editing, or it
+# picks them up on the next restart.
 #
-#   2. Elevated error rate
-#      - Trigger when error rate exceeds 5% for 2 minutes
-#      - Hint: rate(prediction_errors_total[2m]) / rate(prediction_requests_total[2m])
-#      - Severity: warning
-#
-#   3. Service down
-#      - Trigger when the FastAPI service is unreachable for 1 minute
-#      - Hint: up{job="your-job-name"} == 0
-#      - Severity: critical
-#
-# Each alert needs:
-#   - alert: <name>
-#   - expr: <PromQL expression>
-#   - for: <duration>
-#   - labels: severity
-#   - annotations: summary and description
-#
-# The TA will verify these alerts exist and may trigger them during the demo.
-# ============================================================================
+# All metric names come from app/metrics.py. Job label `modelserve-api`
+# matches the scrape_configs job_name in prometheus.yml.
+
+groups:
+  - name: modelserve-api
+    interval: 30s            # how often this group is evaluated (overrides global)
+    rules:
+
+      # ---------------------------------------------------------------
+      # 1. SERVICE DOWN — the scraper can't reach /metrics for >1 min.
+      # ---------------------------------------------------------------
+      - alert: APIServiceDown
+        expr: up{job="modelserve-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: modelserve-api
+        annotations:
+          summary: "ModelServe API is down"
+          description: |
+            Prometheus has been unable to scrape the FastAPI /metrics
+            endpoint for over 1 minute on instance {{ $labels.instance }}.
+            Predictions are unavailable. Check `docker compose ps api`
+            and `docker compose logs api`.
+
+      # ---------------------------------------------------------------
+      # 2. HIGH LATENCY (p95) — 95th-percentile prediction latency stays
+      #    above 500 ms for 5 min. The histogram exposes _bucket series
+      #    we can pipe into histogram_quantile().
+      # ---------------------------------------------------------------
+      - alert: HighPredictionLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(prediction_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: modelserve-api
+        annotations:
+          summary: "p95 prediction latency above 500ms"
+          description: |
+            95th-percentile end-to-end prediction latency has been above
+            500 ms for the last 5 minutes (current: {{ $value | printf "%.3f" }}s).
+            Likely culprits: Feast/Redis slowness, model load contention,
+            or worker saturation. Check the Grafana ModelServe dashboard.
+
+      # ---------------------------------------------------------------
+      # 3. HIGH ERROR RATE — more than 5% of predictions are failing
+      #    over the last 2 min. Excludes the 'no traffic' case by also
+      #    requiring at least 0.1 req/s of traffic to avoid flapping.
+      # ---------------------------------------------------------------
+      - alert: HighPredictionErrorRate
+        expr: |
+          (
+            sum(rate(prediction_errors_total[2m]))
+            /
+            sum(rate(prediction_requests_total[2m]))
+          ) > 0.05
+          and
+          sum(rate(prediction_requests_total[2m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: modelserve-api
+        annotations:
+          summary: "Prediction error rate above 5%"
+          description: |
+            More than 5% of /predict calls are failing over the last 2 minutes
+            (current rate: {{ $value | printf "%.2%" }}).
+            Inspect prediction_errors_total{reason} to see if it's
+            missing_features (404s — entity not materialized) or
+            model_error (500s — code/data issue).
