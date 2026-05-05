@@ -1,13 +1,19 @@
-# ============================================================================
-# ModelServe — Pulumi Project Configuration
-# ============================================================================
-# TODO: Configure this file for your project.
+# Pulumi project descriptor.
 #
-# Required fields:
-#   - name: your project name
-#   - runtime: python
-#   - description: brief description
-#   - config: default AWS region
-#
-# Refer to the Pulumi/CI/CD lab from Episodes 2-3.
-# ============================================================================
+# Pulumi looks for this file when you run any `pulumi` command from
+# inside the `infrastructure/` directory. It tells Pulumi:
+#   - what the project is called (used as a state key)
+#   - what runtime to use (python -> __main__.py is the entry point)
+#   - which Python venv to activate so dependencies are reachable
+# Stack-specific values (region, tags, instance size) live in
+# Pulumi.<stack>.yaml — see Pulumi.dev.yaml.
+
+name: modelserve
+description: AWS infrastructure for the ModelServe inference platform.
+runtime:
+  name: python
+  options:
+    # Pulumi will activate infrastructure/.venv before importing
+    # __main__.py, so `pulumi up` works without you sourcing the venv
+    # manually. Path is relative to this Pulumi.yaml.
+    virtualenv: .venv

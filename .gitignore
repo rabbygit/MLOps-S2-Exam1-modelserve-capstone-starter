@@ -30,10 +30,21 @@ feast_repo/data/registry.db
 feast_repo/data/online_store.db
 feast_repo/.feast/
 
-# Pulumi (Sessions 5-7) — keep Pulumi.yaml, exclude per-stack state
-infrastructure/Pulumi.*.yaml
-!infrastructure/Pulumi.yaml
+# Pulumi (Sessions 5-7)
+# - Pulumi.yaml AND Pulumi.<stack>.yaml are committed. Stack config in
+#   Pulumi.dev.yaml is the canonical record of how the stack was set up;
+#   any `--secret` config values are encrypted with the project passphrase
+#   before being written to disk, so they're safe in git.
+# - State files (.pulumi/) live outside the repo when using `pulumi login
+#   --local` (default: ~/.pulumi/). Listed below as defence-in-depth in
+#   case someone runs `pulumi login file://./`.
+# - SSH keys generated for the EC2 (S6) live in infrastructure/keys/
+#   and never enter git — *.pem / *.key already cover the private key,
+#   the directory pattern catches anything else (config, known_hosts).
 infrastructure/.venv/
+infrastructure/.pulumi/
+infrastructure/Pulumi.*.yaml.bak
+infrastructure/keys/
 
 # Docker / OS / IDE
 .DS_Store

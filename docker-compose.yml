@@ -37,8 +37,11 @@ services:
         condition: service_healthy
     environment:
       MLFLOW_BACKEND_STORE_URI: postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow}@postgres:5432/${POSTGRES_DB:-mlflow}
-      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlartifacts
+      # Local default writes to the volume; EC2 user_data sets this to s3://<bucket>
+      # so artifacts go to the durable bucket (ADR-3).
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlartifacts}
     volumes:
+      # Used only when MLFLOW_DEFAULT_ARTIFACT_ROOT is the local path. Harmless on EC2.
       - mlflow_artifacts:/mlartifacts
     ports:
       - "5000:5000"
@@ -51,9 +54,13 @@ services:
     networks: [modelserve]
 
   api:
+    # Both `build:` and `image:` so the same compose file works two ways:
+    #   local: `docker compose build api` builds and tags as modelserve-api:local
+    #   EC2:   user_data sets API_IMAGE=<ecr-url>:latest, `pull` fetches from ECR
     build:
       context: .
       dockerfile: Dockerfile
+    image: ${API_IMAGE:-modelserve-api:local}
     depends_on:
       redis:
         condition: service_healthy

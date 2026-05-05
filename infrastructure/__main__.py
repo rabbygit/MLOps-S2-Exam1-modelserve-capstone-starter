@@ -1,38 +1,41 @@
-# ============================================================================
-# ModelServe — Pulumi Infrastructure
-# ============================================================================
-# TODO: Provision the AWS resources your deployment topology requires.
-#
-# Your topology is YOUR decision. Common resources include:
-#
-#   Networking:
-#     - VPC with a CIDR block
-#     - Public subnet in an availability zone
-#     - Internet gateway
-#     - Route table with a default route to the internet gateway
-#     - Route table association with the subnet
-#
-#   Security:
-#     - Security group with ingress rules for your service ports
-#     - Security group egress rule allowing all outbound traffic
-#     - Consider: which ports actually need to be open? To whom?
-#
-#   Compute (if deploying to EC2):
-#     - EC2 instance with appropriate instance type
-#     - Key pair for SSH access
-#     - Elastic IP for a stable address
-#     - IAM instance profile + role with S3 and ECR permissions
-#     - User-data script to install Docker and Docker Compose on boot
-#
-#   Storage:
-#     - S3 bucket for MLflow artifacts and/or Feast offline store
-#     - ECR repository for your Docker images (set force_delete=True)
-#
-# Requirements:
-#   - All resources MUST be tagged with: Project = "modelserve"
-#   - Export stack outputs for use by CI/CD (IPs, URLs, bucket names)
-#   - pulumi destroy must cleanly remove everything
-#   - Use os.environ.get("SSH_PUBLIC_KEY", "") for the key pair
-#
-# Refer to the Pulumi/CI/CD lab from Episodes 2-3 for patterns.
-# ============================================================================
+"""Pulumi entry point — imports each module and exports stack outputs."""
+import pulumi
+
+import storage
+import registry
+import iam
+
+# S6 modules — order doesn't matter, Pulumi figures out the resource graph.
+import network    # noqa: F401  imported for side effects (registers VPC etc.)
+import keypair    # noqa: F401
+import instance_role  # noqa: F401
+import compute
+
+
+# Stack outputs — read with `pulumi stack output <name>`.
+# These get consumed by the GitHub Actions workflow and by docs.
+pulumi.export("artifact_bucket", storage.bucket.id)
+pulumi.export("artifact_bucket_arn", storage.bucket.arn)
+
+pulumi.export("ecr_repository_url", registry.repository.repository_url)
+pulumi.export("ecr_repository_arn", registry.repository.arn)
+
+pulumi.export("ci_access_key_id", iam.access_key.id)
+# Marked as a Pulumi secret automatically; needs --show-secrets to print.
+pulumi.export("ci_secret_access_key", iam.access_key.secret)
+
+# S6 — the EC2 host
+pulumi.export("ec2_public_ip", compute.instance.public_ip)
+pulumi.export("ec2_public_dns", compute.instance.public_dns)
+pulumi.export("ec2_instance_id", compute.instance.id)
+
+# Convenience commands you'll actually use after `pulumi up`.
+pulumi.export("ssh_command", pulumi.Output.concat(
+    "ssh -i keys/modelserve ec2-user@", compute.instance.public_ip,
+))
+pulumi.export("api_url", pulumi.Output.concat(
+    "http://", compute.instance.public_ip, ":8000",
+))
+pulumi.export("grafana_url", pulumi.Output.concat(
+    "http://", compute.instance.public_ip, ":3000",
+))
