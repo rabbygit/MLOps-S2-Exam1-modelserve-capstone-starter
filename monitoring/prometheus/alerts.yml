@@ -79,3 +79,29 @@ groups:
             Inspect prediction_errors_total{reason} to see if it's
             missing_features (404s — entity not materialized) or
             model_error (500s — code/data issue).
+
+      # ---------------------------------------------------------------
+      # 4. FEAST MISS RATE — system-specific. High misses means materialize
+      #    didn't cover the entities being predicted on. Same anti-flap
+      #    guard as the error rate alert.
+      # ---------------------------------------------------------------
+      - alert: FeastHighMissRate
+        expr: |
+          (
+            sum(rate(feast_online_store_misses_total[5m]))
+            /
+            sum(rate(feast_online_store_misses_total[5m]) + rate(feast_online_store_hits_total[5m]))
+          ) > 0.20
+          and
+          sum(rate(feast_online_store_misses_total[5m]) + rate(feast_online_store_hits_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: modelserve-api
+        annotations:
+          summary: "Feast online-store miss rate above 20%"
+          description: |
+            More than 20% of feature lookups are missing in Redis over
+            the last 5 minutes. Re-run `python scripts/materialize_features.py`
+            on the host, or investigate whether new entities are appearing
+            that haven't been materialized yet.

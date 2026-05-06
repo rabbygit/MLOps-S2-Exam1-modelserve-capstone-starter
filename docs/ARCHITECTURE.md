@@ -206,29 +206,29 @@ to a second instance) if scaling becomes a real concern. Acceptable for the
 sandbox-bounded demo lifecycle that ends with `pulumi destroy` after every
 session.
 
-### ADR-2: Build-on-EC2 in S5-7, ECR-pull deferred to CI in S8-9
+### ADR-2: First-boot builds locally, subsequent deploys pull from ECR
 
-**Context.** ECR is provisioned in S5 (with `force_delete=True` to satisfy the
-"`pulumi destroy` cleans up" AC) but, prior to S8-9, has no images pushed to it.
-The api container has to come from somewhere on the EC2.
+**Context.** ECR is provisioned by Pulumi (S5), the EC2 is provisioned by
+Pulumi (S6). At first boot, ECR is empty — there's nothing to pull. After the
+first `build-and-push` run (S8-9), ECR has a tagged image and CI deploys can
+pull instead of build.
 
-**Decision.** Keep `docker compose build api` in `user_data.sh` for S5-7. In
-S8-9, GitHub Actions will build once and push to ECR; `user_data.sh` will then
-flip to `docker compose pull api` by setting `API_IMAGE=<ecr-url>:latest` in
-`.env` before bringing services up.
+**Decision.** `user_data.sh` runs `docker compose build api` on first boot.
+The CI `deploy` job then swaps subsequent deploys to ECR-pull by writing
+`API_IMAGE=<ecr-url>:<sha>` into `.env` and running `docker compose pull api &&
+up -d api`. The compose file is forward-compatible: `image: ${API_IMAGE:-modelserve-api:local}`
+defaults to a local-build tag and accepts a CI-set ECR URL with no compose changes.
 
-**Rationale.** A manual `docker push` from the developer's laptop in S7 would be
-a one-time bridge: the moment CI lands in S8-9, that manual step disappears. We
-already prove the IAM scoping (the EC2 role has `ecr:GetAuthorizationToken` and
-the pull-actions on the specific repo ARN) without exercising it. The compose
-file is forward-compatible: `image: ${API_IMAGE:-modelserve-api:local}` defaults
-to the local-build tag in S5-7 and accepts a CI-set ECR URL in S8-9 with no
-compose changes.
+**Rationale.** Two problems solved by a single mechanism. (1) The chicken-and-egg
+of "ECR is empty on first deploy" — handled by the EC2 building locally as a
+bootstrap step. (2) The principle that infrastructure (Pulumi) and application
+deploys (CI) should follow different paths — CI deploys never touch the EC2
+infrastructure, only the running api container.
 
-**Trade-offs.** Cold-start time on EC2 is ~5 minutes longer in S5-7 than it will
-be in S8-9 (build vs. pull). The build pulls fresh layers from Docker Hub every
-time (no layer cache between EC2 lifecycles), which is occasionally rate-limited.
-Both costs vanish once CI is wired.
+**Trade-offs.** First `pulumi up` cold-start is ~5 minutes slower (build vs.
+pull). The first-boot build pulls fresh layers from Docker Hub, which is
+occasionally rate-limited. Both costs only apply to the first deploy after
+each `pulumi up`; subsequent CI deploys are ~1 minute (pull + restart).
 
 ### ADR-3: Postgres ephemeral, S3 durable for MLflow state
 
@@ -329,59 +329,98 @@ will fire alerts deliberately rather than from real load.
 
 ## 4. CI/CD Pipeline Documentation
 
-> Pipeline lands in Sessions 8-9. This section describes the *intended* shape so
-> ADR-2 has something concrete to point at; the workflow file
-> (`.github/workflows/deploy.yml`) is currently a placeholder.
+The workflow lives at [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+and runs on every push and PR plus an explicit `workflow_dispatch` for rollbacks.
+Five jobs split across two trigger modes:
 
-### Intended workflow shape
-
-Three jobs, each with explicit triggers and required secrets:
-
-| Job              | Trigger                       | What it does                                                                 | Secrets needed                              |
-|------------------|-------------------------------|------------------------------------------------------------------------------|---------------------------------------------|
-| `test`           | every push, every PR          | Install deps, run pytest (api + integration tests against ephemeral compose) | none                                        |
-| `build-and-push` | push to `main` (after `test`) | Build api image, tag with commit SHA + `latest`, push to ECR                 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`|
-| `deploy`         | after `build-and-push`        | SSH to EC2, set `API_IMAGE=<ecr-url>:<sha>` in `.env`, `docker compose pull api && up -d api`, verify `/health` returns 200 | `AWS_*`, `SSH_PRIVATE_KEY`                  |
+| Job | Triggers | Needs | Secrets used | What it does |
+|---|---|---|---|---|
+| `test` | push, PR, workflow_dispatch | — | none | `pip install -r requirements.txt && pytest app/tests/` (~5 sec — unit tests with mocks) |
+| `lint` | push, PR, workflow_dispatch | — | none | `ruff check` with `--select=E,F --ignore=E501` |
+| `pulumi-validate` | PR only | — | none | Imports the Pulumi modules to verify the program parses without errors. Generates a throwaway SSH key because `keypair.py` reads one at import time |
+| `build-and-push` | push to `main`, workflow_dispatch | `test`, `lint` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `docker build` → Trivy scan (CRITICAL only, blocks on findings) → `docker push` to ECR with `:<sha>` and `:latest` |
+| `deploy` | push to `main`, workflow_dispatch | `build-and-push` | `AWS_*`, `EC2_HOST`, `EC2_SSH_KEY` | SSH to EC2 → swap `API_IMAGE` in `.env` → `docker compose pull api && up -d api` → poll `/health` for 60 sec |
 
 ### CI/CD strategy: incremental update, not destroy-and-recreate
 
-`pulumi up` runs only on infrastructure-affecting commits (changes under
-`infrastructure/`), and applies an *incremental update*. We do not destroy and
-recreate on every push. Reasoning:
+`pulumi up` is **not** in CI. Infrastructure changes are applied manually
+from a developer's machine. Reasoning:
 
-- The EC2 carries Postgres state across pushes (ADR-3 already accepts that
+- The EC2 carries Postgres state across deploys (ADR-3 already accepts that
   `pulumi destroy` discards it; we want to *avoid* destroying within a
   session). A fresh EC2 means a 6-min user-data bootstrap on every deploy.
-- The api image is the thing that changes on every code push; rebuilding the
+- The api image is the thing that changes on every code push. Rebuilding the
   EC2 to deploy a new api image is wasteful.
 - Incremental Pulumi updates respect resource dependencies — if `compute.py`
   references a `network.py` resource that didn't change, the EC2 isn't touched.
 
-The CI deploy job uses SSH (not Pulumi) to swap the api image, on the principle
+The CI `deploy` job uses SSH (not Pulumi) to swap the api image, on the principle
 that infrastructure changes (Pulumi) and application deploys (SSH `docker compose
 pull && up`) have different cadences and should be on different paths.
 
+For PRs, `pulumi-validate` provides a static check — it imports the Pulumi modules
+to catch syntax errors and broken imports. A true `pulumi preview` would need
+persistent state (Pulumi Cloud or an S3 backend), which conflicts with the
+`--local` choice; documented as a known limitation.
+
+### Trivy in build-and-push, not as a separate scan job
+
+The Trivy scan is a step inside `build-and-push`, between `docker build` and
+`docker push`. If Trivy finds a CRITICAL vulnerability, the push step never
+runs and the image stays only in the ephemeral runner cache. This avoids the
+"bad image lingers in ECR" trap of running scan-after-push.
+
+Threshold is `CRITICAL` only (not `HIGH`) because slim base images frequently
+ship 5-15 HIGH findings that we can't fix from our side. `ignore-unfixed: true`
+further filters out CVEs without an upstream patch available. Real prod would
+fail on HIGH too, but require a tighter base image lifecycle to keep noise
+manageable.
+
+### Image tagging and rollback
+
+Every successful `build-and-push` produces two ECR tags:
+
+- `:<git-sha>` — immutable, traceable to a specific commit
+- `:latest` — moving pointer for "what's currently deployed"
+
+On a normal push to `main`, `deploy` uses the SHA tag from `${{ github.sha }}`.
+For rollback, `workflow_dispatch` accepts a `deploy_sha` input:
+
+```bash
+gh workflow run deploy.yml -f deploy_sha=<old-commit-sha>
+```
+
+The deploy job picks the input over `github.sha`. The image must already be in
+ECR from a prior green build — which it always is, since SHA tags are
+immutable. Rollback is `~30 s` and doesn't trigger a rebuild.
+
 ### Failure handling
 
-- `test` fails → no push, no deploy. The api image in ECR is whatever the
-  previous green commit produced. Rollback is implicit: don't merge red.
-- `build-and-push` fails → `latest` tag in ECR doesn't move. Last successful
-  image is still pulled by EC2. Rollback is implicit.
-- `deploy` fails (e.g. `/health` returns non-200 after pull) → CI fails the
-  job. Rollback is *not* automatic; we'd `ssh` in, set `API_IMAGE` to the
-  prior SHA, and `docker compose pull api && up -d api` manually. A cleaner
-  fix would be a `:rollback` tag in ECR that always points at the previous
-  green; deferring as a known limitation.
+| Job fails | Effect | Recovery |
+|---|---|---|
+| `test` | No push, no deploy | Don't merge red. Re-run after fixing tests. |
+| `lint` | Same as `test` | Fix or add an `# noqa` ignore |
+| `pulumi-validate` (PR) | PR can't merge | Fix the Pulumi program; PR is the only blocker, doesn't affect deploys |
+| `build-and-push` (Trivy) | Image not pushed; ECR `:latest` doesn't move | Bump base image, regenerate `requirements-api.txt`, or add a `.trivyignore` for accepted CVEs |
+| `build-and-push` (Docker build) | Same as above | Read the build error; usually a deps regression |
+| `deploy` (SSH) | Container not swapped on EC2; old version still running | Likely a stale `EC2_HOST` secret after `pulumi up`. Re-run `gh secret set EC2_HOST` and `gh run rerun` |
+| `deploy` (`/health` 60-sec timeout) | New container is up but unhealthy | SSH in, `docker compose logs -f api` to diagnose. If startup blew up, roll back via `gh workflow run deploy.yml -f deploy_sha=<previous>` |
+
+Rollback is **not** automatic on health-check failure. The exam rubric calls
+out automatic rollback as a future improvement; our position is "explicit
+manual rollback is preferable for a small team without alert pager rotation."
 
 ### Expected end-to-end deploy time
 
-Branch | Time
----|---
-`test` only (PR) | ~3-4 min
-push to `main` (test + build-and-push + deploy) | ~6-8 min
+| Path | Wall time | Bottleneck |
+|---|---|---|
+| `test` only (PR) | ~1-2 min | Python install + pytest |
+| Push to `main` (full pipeline) | ~6-8 min | api image build + Trivy scan |
+| Rollback via `workflow_dispatch` | ~1 min | SSH + `docker compose pull` (image already in ECR) |
 
-The dominant cost is the api image build (~3 min on a clean GitHub runner cache).
-ECR push and deploy are each ~30 s.
+The api image build is the dominant cost. GitHub-hosted runners don't preserve
+layer cache between runs, so every build pulls fresh deps. A self-hosted
+runner with persistent BuildKit cache would shave ~2 min — out of scope here.
 
 ---
 
@@ -573,8 +612,23 @@ deploys have happened. Real prod would either lifecycle-cleanup more aggressivel
 or move artifacts to a private repository pattern (e.g. one bucket per
 environment).
 
-**ECR is provisioned but unused until S8-9.** ADR-2. Once CI lands, ECR is
-populated and the EC2 pulls instead of building.
+**No automatic rollback on health-check failure.** If `deploy` fails because
+`/health` returns non-200, the previous container is already gone (replaced
+by `up -d api`) and the new one is unhealthy. Manual recovery is `gh workflow
+run deploy.yml -f deploy_sha=<previous>`. Real prod would either run a
+canary first, or use a deployment strategy with automatic traffic-cutover
+that doesn't replace the old until the new passes its readiness probe.
+
+**Trivy scan threshold is `CRITICAL` only.** ADR/CI-section calls this out:
+`HIGH` findings on `python:3.10-slim-bookworm` are common and mostly unfixable
+from our side. Real prod would tighten by adopting a maintained slim base
+(distroless, chainguard) where unfixable CVEs are rarer.
+
+**Pulumi state lives on a single developer's laptop** (`pulumi login --local`).
+If the laptop dies before `pulumi destroy`, the AWS resources are orphaned —
+they exist in AWS but no Pulumi state file knows about them. The sandbox
+auto-cleanup at session end mitigates this, but for real prod we'd use Pulumi
+Cloud or an S3 backend so multiple operators share state.
 
 **Security group is open to the world.** `0.0.0.0/0` on ports 8000/3000/5000/9090.
 For a sandbox demo this is required so the TA can reach the services. Real prod

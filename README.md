@@ -8,8 +8,10 @@ MLflow, served from FastAPI, and looks up online features from Redis through
 Feast. Sessions 1-2 deliver the local stack and inference API; Sessions 3-4
 harden containerization (multi-stage Dockerfile, non-root user, < 800 MB image)
 and add observability (Prometheus + Grafana with provisioned dashboards and
-alert rules). Later sessions add AWS infrastructure (Pulumi) and CI/CD
-(GitHub Actions).
+alert rules). Sessions 5-7 provision AWS infrastructure (VPC, EC2, ECR, S3,
+IAM) via Pulumi, with MLflow artifacts in S3 for durability. Sessions 8-9
+add a GitHub Actions CI/CD pipeline (test → lint → build-scan-push → deploy
+with `/health` verification, plus rollback via `workflow_dispatch`).
 
 ---
 
@@ -333,16 +335,49 @@ All variables live in `.env` (gitignored). See [`.env.example`](.env.example) fo
 
 ---
 
-## GitHub Secrets
+## GitHub Secrets (Sessions 8-9)
 
-> Populated in Sessions 5-9 when CI/CD comes online.
+The CI/CD workflow ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) reads four
+secrets. All four come straight out of `pulumi stack output` after a
+successful `pulumi up`, so refreshing them is one command per secret.
 
-| Secret | Purpose |
-|---|---|
-| `AWS_ACCESS_KEY_ID` | Pulumi authentication to AWS |
-| `AWS_SECRET_ACCESS_KEY` | Pulumi authentication to AWS |
-| `SSH_PUBLIC_KEY` | Injected into the EC2 key pair via Pulumi |
-| `PULUMI_ACCESS_TOKEN` | Pulumi Service backend (or use `--local`) |
+| Secret | Source | Purpose |
+|---|---|---|
+| `AWS_ACCESS_KEY_ID` | `pulumi stack output ci_access_key_id` | Auth for `build-and-push` (ECR push) and `deploy` (ECR login proxy) |
+| `AWS_SECRET_ACCESS_KEY` | `pulumi stack output ci_secret_access_key --show-secrets` | Same |
+| `EC2_HOST` | `pulumi stack output ec2_public_ip` | Where the `deploy` job SSHes to |
+| `EC2_SSH_KEY` | `cat infrastructure/keys/modelserve` | Private key for the SSH session (the `.pub` is already on the EC2) |
+
+### Setting them in one shot
+
+After every `pulumi up` (because IPs and access keys are fresh):
+
+```bash
+cd infrastructure
+gh secret set AWS_ACCESS_KEY_ID -b "$(pulumi stack output ci_access_key_id)"
+gh secret set AWS_SECRET_ACCESS_KEY -b "$(pulumi stack output ci_secret_access_key --show-secrets)"
+gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"
+gh secret set EC2_SSH_KEY -b "$(cat keys/modelserve)"
+```
+
+### Triggering the pipeline
+
+Empty commit + push is the simplest trigger — pushes to `main` run the full pipeline:
+
+```bash
+git commit --allow-empty -m "deploy"
+git push origin main
+```
+
+For a rollback (deploy a previous SHA's image without rebuilding):
+
+```bash
+gh workflow run deploy.yml -f deploy_sha=<old-commit-sha>
+```
+
+The image must already be in ECR from a prior successful `build-and-push`. The
+`build-and-push` job tags every image with both `:<sha>` and `:latest`, so any
+green build's SHA is rollback-eligible.
 
 ---
 
@@ -368,6 +403,10 @@ All variables live in `.env` (gitignored). See [`.env.example`](.env.example) fo
 | Tail Grafana provisioning logs | `docker compose logs grafana \| grep -iE 'provision\|datasource\|dashboard'` |
 | Verify image size (< 800 MB) | `docker images mlops-s2-exam1-modelserve-capstone-starter-api --format '{{.Size}}'` |
 | Verify api runs as non-root | `docker compose exec api id` |
+| Run unit tests | `pytest app/tests/ -v` |
+| Trigger CI deploy | `git commit --allow-empty -m deploy && git push origin main` |
+| Watch CI run | `gh run watch` |
+| Rollback to a prior SHA | `gh workflow run deploy.yml -f deploy_sha=<old-sha>` |
 
 ---
 
@@ -393,8 +432,20 @@ modelserve/
 │       │   └── dashboards/dashboard.yml     file-provider config
 │       └── dashboards/modelserve.json  the actual dashboard
 ├── infrastructure/                     Pulumi program (Sessions 5-7)
-├── docs/                               ARCHITECTURE.md + diagrams
-├── .github/workflows/                  CI/CD pipeline (Sessions 8-9)
+│   ├── storage.py                      S3 bucket
+│   ├── registry.py                     ECR repository
+│   ├── iam.py                          CI IAM user
+│   ├── network.py                      VPC + subnet + IGW + RT + SG
+│   ├── keypair.py                      EC2 SSH key pair
+│   ├── instance_role.py                EC2 IAM role + instance profile
+│   ├── compute.py                      EC2 instance
+│   ├── user_data.sh                    First-boot bootstrap script
+│   └── __main__.py                     Pulumi entry point + stack outputs
+├── docs/
+│   ├── ARCHITECTURE.md                 5 ADRs + runbook + known limits
+│   └── DEMO.md                         60-min live demo runbook
+├── .github/workflows/
+│   └── deploy.yml                      CI/CD pipeline (Sessions 8-9)
 ├── docker-compose.yml                  Local stack (6 services)
 ├── Dockerfile                          FastAPI image (multi-stage, non-root, < 800 MB)
 ├── Dockerfile.mlflow                   MLflow tracking server image
@@ -408,7 +459,8 @@ modelserve/
 
 ## Engineering Documentation
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full architecture documentation, ADRs, runbook, and known limitations.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — full architecture: diagrams, 5 ADRs, CI/CD pipeline shape, runbook, known limitations
+- [`docs/DEMO.md`](docs/DEMO.md) — 60-minute live-demo runbook (cold start through teardown)
 
 ---
 

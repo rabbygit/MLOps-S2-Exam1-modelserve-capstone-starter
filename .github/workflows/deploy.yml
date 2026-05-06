@@ -1,39 +1,206 @@
-# ============================================================================
-# ModelServe — GitHub Actions CI/CD Pipeline
-# ============================================================================
-# TODO: Implement the full CI/CD pipeline.
+# ModelServe CI/CD pipeline.
 #
-# Required jobs:
+# Five jobs:
+#   test               unit tests with mocks, fast (~5 sec)
+#   lint               ruff against the source tree
+#   pulumi-validate    PRs only — verify the Pulumi program parses
+#   build-and-push     build api image, scan with Trivy, push to ECR (push-to-main only)
+#   deploy             SSH to EC2, swap API_IMAGE, verify /health (push-to-main only)
 #
-#   1. test
-#      - Triggers on: every push and pull request
-#      - Steps: checkout, setup Python, install dependencies, run pytest
-#      - Must pass before any other job runs
-#
-#   2. build-and-push
-#      - Triggers on: push to main only (after test passes)
-#      - Steps: checkout, configure AWS credentials, login to ECR,
-#               build Docker image, tag with :latest and :$GITHUB_SHA,
-#               push to ECR
-#      - Needs: test
-#
-#   3. deploy
-#      - Triggers on: push to main only (after build-and-push passes)
-#      - Steps: connect to deployment target, pull new images,
-#               restart services, verify health endpoint returns 200
-#      - Needs: build-and-push
-#
-# Optional additional jobs:
-#   - infrastructure: run pulumi up before build-and-push
-#   - lint: run flake8 or ruff
-#   - security-scan: run Trivy on built images (bonus marks)
-#
-# Required GitHub Secrets (document these in your README):
-#   - AWS_ACCESS_KEY_ID
-#   - AWS_SECRET_ACCESS_KEY
-#   - PULUMI_ACCESS_TOKEN
-#   - SSH_PRIVATE_KEY (if deploying to EC2 via SSH)
-#   - SSH_PUBLIC_KEY (if Pulumi creates key pairs)
-#
-# Refer to the Pulumi/CI/CD lab from Episodes 2-3 for patterns.
-# ============================================================================
+# Required GitHub secrets (set with `gh secret set`, see README):
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY    from `pulumi stack output ci_access_key_id` etc.
+#   EC2_HOST                                    from `pulumi stack output ec2_public_ip`
+#   EC2_SSH_KEY                                 contents of infrastructure/keys/modelserve
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: 'SHA to deploy (default: current commit). Use to roll back.'
+        required: false
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_REPOSITORY: modelserve-api
+  PYTHON_VERSION: '3.10'
+
+jobs:
+
+  # ===========================================================================
+  test:
+  # ===========================================================================
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: pytest
+        run: pytest app/tests/ -v
+
+  # ===========================================================================
+  lint:
+  # ===========================================================================
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ruff
+        run: pip install ruff==0.4.10
+      - name: Run ruff
+        run: ruff check app/ training/ scripts/ infrastructure/ --select=E,F --ignore=E501
+
+  # ===========================================================================
+  pulumi-validate:
+  # ===========================================================================
+    name: Pulumi program validates
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Pulumi deps
+        working-directory: infrastructure
+        run: pip install -r requirements.txt
+      - name: Generate dummy SSH key (keypair.py reads it at import time)
+        working-directory: infrastructure
+        run: |
+          mkdir -p keys
+          ssh-keygen -t ed25519 -f keys/modelserve -N "" -C "ci-validate"
+      - name: Validate the Pulumi program parses cleanly
+        working-directory: infrastructure
+        run: |
+          # Importing all modules exercises the same Python evaluation Pulumi
+          # does at the start of `pulumi up`, just without an active stack.
+          python -c "import storage, registry, iam, network, keypair, instance_role, compute"
+          echo "Pulumi program imports cleanly"
+
+  # ===========================================================================
+  build-and-push:
+  # ===========================================================================
+    name: Build, scan, push to ECR
+    needs: [test, lint]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.meta.outputs.image_uri }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image tags
+        id: meta
+        run: |
+          IMAGE_URI=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          IMAGE_TAG=$IMAGE_URI:${{ github.sha }}
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build api image (tag with SHA + latest)
+        run: |
+          docker build \
+            -t ${{ steps.meta.outputs.image_tag }} \
+            -t ${{ steps.meta.outputs.image_uri }}:latest \
+            .
+
+      - name: Trivy scan (block on CRITICAL only — HIGH is too noisy on slim base images)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image_tag }}
+          format: table
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Push to ECR (only reached if Trivy passed)
+        run: |
+          docker push ${{ steps.meta.outputs.image_tag }}
+          docker push ${{ steps.meta.outputs.image_uri }}:latest
+
+  # ===========================================================================
+  deploy:
+  # ===========================================================================
+    name: Deploy to EC2
+    needs: build-and-push
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Determine deploy SHA
+        id: sha
+        run: |
+          # workflow_dispatch with a custom SHA = rollback path
+          SHA="${{ github.event.inputs.deploy_sha || github.sha }}"
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Swap API_IMAGE on EC2 and restart api container
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
+          NEW_IMAGE: ${{ needs.build-and-push.outputs.image_uri }}:${{ steps.sha.outputs.sha }}
+        run: |
+          ssh ec2-user@${EC2_HOST} bash <<EOF
+          set -e
+          cd modelserve
+
+          # Replace API_IMAGE in .env if present, otherwise append.
+          if grep -q '^API_IMAGE=' .env; then
+            sed -i "s|^API_IMAGE=.*|API_IMAGE=${NEW_IMAGE}|" .env
+          else
+            echo "API_IMAGE=${NEW_IMAGE}" >> .env
+          fi
+
+          # ECR login (creds come from EC2 instance role via IMDS).
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${IMAGE_URI}
+
+          # Pull the new image and swap the running container.
+          docker compose pull api
+          docker compose up -d api
+          EOF
+
+      - name: Verify /health (60s budget)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://${EC2_HOST}:8000/health; then
+              echo
+              echo "Healthy after $((i*2)) seconds"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed after 60s"
+          exit 1
