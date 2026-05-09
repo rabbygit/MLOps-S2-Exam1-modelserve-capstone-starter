@@ -61,7 +61,10 @@ jobs:
       - name: Install ruff
         run: pip install ruff==0.4.10
       - name: Run ruff
-        run: ruff check app/ training/ scripts/ infrastructure/ --select=E,F --ignore=E501
+        # E501 — long lines kept for clarity (not enforced).
+        # E402 — `load_dotenv()` runs before some imports by design (env vars
+        # need to be set before modules that read them at import time).
+        run: ruff check app/ training/ scripts/ infrastructure/ --select=E,F --ignore=E501,E402
 
   # ===========================================================================
   pulumi-validate:
