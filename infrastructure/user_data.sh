@@ -40,10 +40,10 @@ curl -fsSL --retry 3 --retry-delay 5 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-# 4. clone the repo. Pinned to the session-8-9 branch since main is the
-# starter stub (see ADR-2 / DEMO.md for the merge-to-main story).
+# 4. clone the repo from main (session-8-9 was a working branch; main now
+# carries the same content after the merge).
 cd /home/ec2-user
-git clone --branch session-8-9 __REPO_URL__ modelserve
+git clone --branch main __REPO_URL__ modelserve
 cd modelserve
 
 # 5. Kaggle dataset (unauthenticated endpoint, retries on flake)
