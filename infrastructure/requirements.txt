@@ -13,9 +13,10 @@
 # re-activating the venv yourself.
 
 # Core SDK — defines pulumi.Output, pulumi.export, the Resource base class.
-pulumi==3.140.0
+# pulumi-aws 6.66 needs pulumi >= 3.142, so use a compatible range.
+pulumi>=3.142.0,<4.0.0
 
 # AWS provider — gives you aws.s3.Bucket, aws.ec2.Instance, aws.iam.User,
 # etc. Built on top of Pulumi's core SDK and the AWS Terraform provider
 # under the hood.
-pulumi-aws==6.66.0
+pulumi-aws>=6.66.0,<7.0.0

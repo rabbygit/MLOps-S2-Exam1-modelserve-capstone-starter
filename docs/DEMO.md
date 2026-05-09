@@ -1,14 +1,26 @@
-# ModelServe — Demo Runbook (60 min)
+# ModelServe — Demo Runbook (~70 min)
 
 > Cheat sheet for the live demo. Read it the day before; use it on the day.
 
+## Exam VM environment (Poridhi sandbox)
+
+What's pre-installed on the Poridhi VM (Ubuntu 24.04 noble):
+- `docker`, `docker compose`, `git`, `python3` (3.12), `pip3`, `jq`, `ssh-keygen`
+
+What needs installing every fresh VM (~3 min):
+- `pulumi` (one-line installer)
+- `gh` (apt repo)
+- `aws` CLI v2 (AWS bundle, since `awscli` isn't in noble's apt)
+
+Python 3.12 (default on this VM) is fine for Pulumi + pytest + ruff. Training runs on the EC2 (which has its own Python 3.11 via `dnf`), so the host Python version doesn't actually matter much.
+
 ## Day-before checklist
 
-- Repo public on GitHub
-- `gh auth login` works
-- Latest changes pushed to `main` so CI has something to run against
+- Repo public on GitHub at `https://github.com/rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter`
+- **`main` branch must be up to date** — `session-8-9` (or whatever working branch) is merged into `main`. The CI workflow only triggers on push to `main`, and the cloned repo's `main` is what `pulumi up` reads from. Verify with: `git ls-remote origin main` should match the latest commit you want demoed.
 - Re-read the 5 ADRs in `docs/ARCHITECTURE.md` once
 - Re-read this file
+- Have AWS sandbox creds ready (or know where to grab them on demo day)
 - Sleep
 
 ## 30 minutes before
@@ -18,7 +30,7 @@ Open these tabs:
 - GitHub repo → Settings → Secrets
 - `docs/ARCHITECTURE.md` (in editor)
 
-Two terminal windows ready:
+Two terminal windows ready (both on the Poridhi VM):
 - one in repo root
 - one for SSH later
 
@@ -26,33 +38,82 @@ Confirm AWS sandbox credentials are at hand, and the Poridhi VM is provisioned.
 
 ---
 
-## T+0 — Cold start, AWS provisioning
+## T-5 → T+0 — Bootstrap the exam VM (~3 min)
 
-Get fresh AWS creds from the sandbox. Open terminal in the repo root.
+Runs once per fresh Poridhi VM. The exam VM doesn't have Pulumi, gh, or AWS CLI v2.
+
+**Where to fit this in:** if the VM is alive 30 minutes before demo time, do this in the prep window so T+0 starts with all tools ready. If you only get the VM at demo start, this eats into the first ~3 minutes of the 10-min cold-start budget — still fits.
 
 ```bash
+# 1. Pulumi
+curl -fsSL https://get.pulumi.com | sh
+echo 'export PATH=$PATH:$HOME/.pulumi/bin' >> ~/.bashrc
+export PATH=$PATH:$HOME/.pulumi/bin
+
+# 2. gh CLI + python venv module + unzip
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+sudo apt update && sudo apt install -y gh unzip python3.12-venv
+
+# 3. AWS CLI v2 (apt's `awscli` was dropped in noble)
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/aws
+
+# 4. Verify everything is wired
+docker --version && docker compose version
+pulumi version && gh --version && aws --version && python3 --version
+```
+
+Then auth + identity:
+
+```bash
+# 5. gh login (browser-based one-time code)
+gh auth login -h github.com -s repo,workflow -w
+# Answer prompts: HTTPS → Y → Web browser. Paste the code, approve.
+gh auth status
+
+# 6. Git identity (needed before any `git commit`)
+git config --global user.name "Rabby"
+git config --global user.email "<your-github-email>"
+```
+
+---
+
+## T+0 — Cold start, AWS provisioning
+
+Get fresh AWS creds from the sandbox. Run from your home directory (or anywhere — the script clones the repo first).
+
+```bash
+# Set env vars first so they're inherited by everything downstream.
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=ap-southeast-1
+export PULUMI_CONFIG_PASSPHRASE=demo
+
+# Sanity-check AWS auth before doing anything.
+aws sts get-caller-identity
+# Expected: JSON with the sandbox account ID.
+
+# Clone the repo + set up the EC2 SSH key.
 git clone https://github.com/rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter modelserve
 cd modelserve
-
-# fresh SSH key for the EC2
 mkdir -p infrastructure/keys
 ssh-keygen -t ed25519 -f infrastructure/keys/modelserve -N "" -C "modelserve-demo"
 
-# pulumi venv
+# Pulumi venv. python3.12-venv was installed in the bootstrap step.
 cd infrastructure
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# pulumi state + stack
+# Pulumi state backend + stack (idempotent — works whether or not stack exists).
 pulumi login --local
-pulumi stack init dev
+pulumi stack select dev 2>/dev/null || pulumi stack init dev
 
-# AWS creds + passphrase
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-export PULUMI_CONFIG_PASSPHRASE=demo
-
-# the actual provision (~2 min)
+# Provision (~2 min).
 pulumi up --yes
 ```
 
@@ -155,7 +216,7 @@ curl -X POST http://$EC2_IP:8000/predict \
   -d @training/sample_request.json
 
 # Predict with explain (GET)
-ENTITY_ID=$(python -c 'import json; print(json.load(open("training/sample_request.json"))["entity_id"])')
+ENTITY_ID=$(jq -r .entity_id training/sample_request.json)
 curl "http://$EC2_IP:8000/predict/$ENTITY_ID?explain=true"
 
 # Metrics
@@ -268,13 +329,23 @@ Tell the TA: *"All 23 AWS resources destroyed. force_delete on ECR handles non-e
 
 | Problem | Recovery |
 |---|---|
+| `pulumi: command not found` after install | `export PATH=$PATH:$HOME/.pulumi/bin`. Add to `~/.bashrc` if not already. |
+| `pulumi login --local` errors "expected project to be an object, was '<nil>'" | Cloned `main` but the work is on another branch. `git checkout session-8-9` (or merge to main first). |
+| `python3 -m venv` says "ensurepip is not available" | `sudo apt install -y python3.12-venv`, then `rm -rf .venv && python3 -m venv .venv` |
+| `pip install` says "externally-managed-environment" | The venv isn't active. Run `source .venv/bin/activate` first. The error means pip is hitting system Python because the venv failed silently. |
+| `gh: command not found` after install | `which gh`; if missing, re-run the `apt install gh` step |
+| `aws: command not found` | Run the AWS CLI v2 bundle install from the bootstrap section |
+| `gh auth login` says "Failed opening a web browser" | Expected on a headless VM. Copy the one-time code shown, open `https://github.com/login/device` on your laptop, paste, approve. Terminal continues automatically. |
+| `git commit` says "Please tell me who you are" | `git config --global user.name "Rabby" && git config --global user.email "..."` |
 | `pulumi up` fails on AWS API throttle | Re-run `pulumi up --yes` |
 | Stack state is dirty | `pulumi refresh --yes` then `pulumi up --yes` |
+| `pulumi up` says secrets passphrase is wrong | `export PULUMI_CONFIG_PASSPHRASE=demo` (or whatever you used at `stack init`) |
 | EC2 user_data still booting when CI tries to SSH | `gh run rerun --failed` |
 | Kaggle dataset download flakes | SSH in, run the curl manually, re-trigger CI |
-| Pipeline fails on `test` (Python version mismatch) | Workflow pins 3.10. Read the error, patch on the spot. |
-| `EC2_HOST` IP changed (re-provisioned) | `gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"`, then re-run |
-| `pulumi destroy` fails on a resource | `--force` or `--target` to skip the bad one. Document why. |
+| Pipeline fails on `test` (Python version mismatch) | Workflow pins 3.10 in the GitHub runner. Should pass even though VM has 3.12. If it fails, read the error and patch. |
+| `EC2_HOST` IP changed (re-provisioned) | `gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"`, then re-run the workflow |
+| AWS creds expired mid-demo (sandbox token rotated) | Re-export `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. Re-set the four `gh secret set` commands. |
+| `pulumi destroy` fails on a resource | `pulumi destroy --target '<urn>' --yes` to skip; `aws s3 rm s3://<bucket> --recursive` if bucket is the blocker |
 | Forgot the passphrase | `pulumi stack rm dev --yes && pulumi stack init dev` and start over (~3 min lost). |
 
 ---
