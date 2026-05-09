@@ -14,17 +14,20 @@ config = pulumi.Config()
 aws_config = pulumi.Config("aws")
 THIS_DIR = Path(__file__).resolve().parent
 
-# Latest Amazon Linux 2023 AMI from the EC2 image catalogue. Uses
-# ec2:DescribeImages, which the Poridhi sandbox allows (unlike
-# ssm:GetParameter, which would have been a one-line SSM lookup).
+# Filter for the latest AL2023 AMI. Sandbox accounts may only expose
+# variant images (ecs-hvm, minimal, neuron) — if the filter returns no
+# results, switch to a hardcoded AMI ID (see below).
 ami = aws.ec2.get_ami(
     most_recent=True,
     owners=["amazon"],
     filters=[
-        {"name": "name", "values": ["al2023-ami-*-kernel-default-x86_64"]},
+        # Pattern matches the ECS-hvm variant since the standard AL2023
+        # isn't in the sandbox catalogue. ECS-hvm is AL2023 + Docker + ECS
+        # agent — the Docker daemon gets reconfigured by our user_data
+        # anyway, and the unused ECS agent does nothing without a cluster.
+        {"name": "name", "values": ["al2023-ami-ecs-hvm-*-x86_64"]},
         {"name": "architecture", "values": ["x86_64"]},
         {"name": "virtualization-type", "values": ["hvm"]},
-        {"name": "state", "values": ["available"]},
     ],
 )
 
