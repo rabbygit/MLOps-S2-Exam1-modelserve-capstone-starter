@@ -72,6 +72,11 @@ services:
       MODEL_STAGE: ${MODEL_STAGE:-Production}
       FEAST_REPO_PATH: /app/feast_repo
       REDIS_CONNECTION_STRING: redis:6379
+    volumes:
+      # Bind-mount the host's feast_repo so registry.db updates are live in the
+      # container without rebuilding the image. After `python scripts/materialize_features.py`,
+      # `docker compose restart api` is enough — no `docker compose build api` needed.
+      - ./feast_repo:/app/feast_repo:ro
     ports:
       - "8000:8000"
     networks: [modelserve]
