@@ -14,10 +14,18 @@ config = pulumi.Config()
 aws_config = pulumi.Config("aws")
 THIS_DIR = Path(__file__).resolve().parent
 
-# Latest Amazon Linux 2023 AMI ID, published by AWS via SSM. Re-resolved on
-# every `pulumi up`, so we never pin to a stale AMI.
-ami = aws.ssm.get_parameter(
-    name="/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64",
+# Latest Amazon Linux 2023 AMI from the EC2 image catalogue. Uses
+# ec2:DescribeImages, which the Poridhi sandbox allows (unlike
+# ssm:GetParameter, which would have been a one-line SSM lookup).
+ami = aws.ec2.get_ami(
+    most_recent=True,
+    owners=["amazon"],
+    filters=[
+        {"name": "name", "values": ["al2023-ami-*-kernel-default-x86_64"]},
+        {"name": "architecture", "values": ["x86_64"]},
+        {"name": "virtualization-type", "values": ["hvm"]},
+        {"name": "state", "values": ["available"]},
+    ],
 )
 
 # user_data has the S3 bucket name to substitute — it doesn't exist until
@@ -34,7 +42,7 @@ user_data = storage.bucket.id.apply(
 
 instance = aws.ec2.Instance(
     "modelserve-host",
-    ami=ami.value,
+    ami=ami.id,
     instance_type=config.require("instance_type"),
     subnet_id=network.public_subnet.id,
     vpc_security_group_ids=[network.security_group.id],

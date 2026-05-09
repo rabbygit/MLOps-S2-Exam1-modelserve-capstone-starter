@@ -89,10 +89,13 @@ Get fresh AWS creds from the sandbox. Run from your home directory (or anywhere 
 
 ```bash
 # Set env vars first so they're inherited by everything downstream.
+# IMPORTANT: PULUMI_CONFIG_PASSPHRASE must match what you used the first
+# time you ran `pulumi stack init`. If unsure, just pick one here and
+# export it BEFORE `stack init`.
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_REGION=ap-southeast-1
-export PULUMI_CONFIG_PASSPHRASE=demo
+export PULUMI_CONFIG_PASSPHRASE=modelserve
 
 # Sanity-check AWS auth before doing anything.
 aws sts get-caller-identity
@@ -339,7 +342,7 @@ Tell the TA: *"All 23 AWS resources destroyed. force_delete on ECR handles non-e
 | `git commit` says "Please tell me who you are" | `git config --global user.name "Rabby" && git config --global user.email "..."` |
 | `pulumi up` fails on AWS API throttle | Re-run `pulumi up --yes` |
 | Stack state is dirty | `pulumi refresh --yes` then `pulumi up --yes` |
-| `pulumi up` says secrets passphrase is wrong | `export PULUMI_CONFIG_PASSPHRASE=demo` (or whatever you used at `stack init`) |
+| `pulumi up` says "incorrect passphrase" | `export PULUMI_CONFIG_PASSPHRASE=<whatever-you-used-at-stack-init>`. The default in this doc is `modelserve` but the actual binding is whatever you typed first. |
 | EC2 user_data still booting when CI tries to SSH | `gh run rerun --failed` |
 | Kaggle dataset download flakes | SSH in, run the curl manually, re-trigger CI |
 | Pipeline fails on `test` (Python version mismatch) | Workflow pins 3.10 in the GitHub runner. Should pass even though VM has 3.12. If it fails, read the error and patch. |
