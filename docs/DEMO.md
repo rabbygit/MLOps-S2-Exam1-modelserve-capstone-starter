@@ -345,6 +345,8 @@ Tell the TA: *"All 23 AWS resources destroyed. force_delete on ECR handles non-e
 | `pulumi up` fails on AWS API throttle | Re-run `pulumi up --yes` |
 | Stack state is dirty | `pulumi refresh --yes` then `pulumi up --yes` |
 | `pulumi up` says "incorrect passphrase" | `export PULUMI_CONFIG_PASSPHRASE=<whatever-you-used-at-stack-init>`. The default in this doc is `modelserve` but the actual binding is whatever you typed first. |
+| `ec2:RunInstances` denied for `t3.small` (or larger) | Sandbox SCP whitelist; `t2.micro` works. `pulumi config set modelserve:instance_type t2.micro` then re-run. |
+| Containers OOM-killed on `t2.micro` (1 GB RAM) | SSH in: `sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`. Then `docker compose up -d` to bring back killed services. user_data.sh now does this automatically on fresh boots. |
 | EC2 user_data still booting when CI tries to SSH | `gh run rerun --failed` |
 | Kaggle dataset download flakes | SSH in, run the curl manually, re-trigger CI |
 | Pipeline fails on `test` (Python version mismatch) | Workflow pins 3.10 in the GitHub runner. Should pass even though VM has 3.12. If it fails, read the error and patch. |

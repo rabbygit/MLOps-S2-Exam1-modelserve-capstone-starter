@@ -16,6 +16,16 @@ exec > >(tee -a /var/log/modelserve-bootstrap.log) 2>&1
 
 echo "==> [$(date)] starting modelserve bootstrap"
 
+# 0. 2 GB swap file. t2.micro only has 1 GB RAM; the 6-service compose
+# stack OOMs without it. Cheap insurance.
+if ! swapon --show | grep -q /swapfile; then
+  dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile
+  echo "/swapfile none swap sw 0 0" >> /etc/fstab
+fi
+
 # 1. system packages
 dnf install -y docker git unzip python3.11 python3.11-pip
 
@@ -30,9 +40,10 @@ curl -fsSL --retry 3 --retry-delay 5 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-# 4. clone the repo
+# 4. clone the repo. Pinned to the session-8-9 branch since main is the
+# starter stub (see ADR-2 / DEMO.md for the merge-to-main story).
 cd /home/ec2-user
-git clone __REPO_URL__ modelserve
+git clone --branch session-8-9 __REPO_URL__ modelserve
 cd modelserve
 
 # 5. Kaggle dataset (unauthenticated endpoint, retries on flake)
