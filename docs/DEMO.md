@@ -76,7 +76,11 @@ gh auth login -h github.com -s repo,workflow -w
 # Answer prompts: HTTPS → Y → Web browser. Paste the code, approve.
 gh auth status
 
-# 6. Git identity (needed before any `git commit`)
+# 6. Set the default repo for `gh secret set`, `gh run watch`, etc.
+# Without this, every gh command errors with "no default remote repository".
+gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter
+
+# 7. Git identity (needed before any `git commit`)
 git config --global user.name "Rabby"
 git config --global user.email "<your-github-email>"
 ```
@@ -341,6 +345,7 @@ Tell the TA: *"All 23 AWS resources destroyed. force_delete on ECR handles non-e
 | `gh: command not found` after install | `which gh`; if missing, re-run the `apt install gh` step |
 | `aws: command not found` | Run the AWS CLI v2 bundle install from the bootstrap section |
 | `gh auth login` says "Failed opening a web browser" | Expected on a headless VM. Copy the one-time code shown, open `https://github.com/login/device` on your laptop, paste, approve. Terminal continues automatically. |
+| Any `gh` command says "no default remote repository" | `gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter`. Persists for the VM's gh config. |
 | `git commit` says "Please tell me who you are" | `git config --global user.name "Rabby" && git config --global user.email "..."` |
 | `pulumi up` fails on AWS API throttle | Re-run `pulumi up --yes` |
 | Stack state is dirty | `pulumi refresh --yes` then `pulumi up --yes` |
