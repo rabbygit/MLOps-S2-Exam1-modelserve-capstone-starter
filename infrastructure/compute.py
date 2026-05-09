@@ -70,6 +70,11 @@ instance = aws.ec2.Instance(
         "volume_size": 30,
         "volume_type": "gp3",
     },
-    # Adds a "Name" column in the AWS Console. defaultTags handles the rest.
-    tags={"Name": "modelserve-host"},
+    # Inline tags (defaultTags is disabled in the sandbox — see Pulumi.dev.yaml).
+    tags={
+        "Name": "modelserve-host",
+        "Project": "modelserve",
+        "Environment": "dev",
+        "ManagedBy": "pulumi",
+    },
 )
