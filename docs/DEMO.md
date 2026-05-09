@@ -132,8 +132,10 @@ Pulumi finished. Stack outputs are now available.
 
 ```bash
 # still inside infrastructure/
-gh secret set AWS_ACCESS_KEY_ID -b "$(pulumi stack output ci_access_key_id)"
-gh secret set AWS_SECRET_ACCESS_KEY -b "$(pulumi stack output ci_secret_access_key --show-secrets)"
+# AWS creds come from the sandbox env vars (the dedicated `ci` user
+# can't be created in the Poridhi sandbox — see comment in __main__.py).
+gh secret set AWS_ACCESS_KEY_ID -b "$AWS_ACCESS_KEY_ID"
+gh secret set AWS_SECRET_ACCESS_KEY -b "$AWS_SECRET_ACCESS_KEY"
 gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"
 gh secret set EC2_SSH_KEY -b "$(cat keys/modelserve)"
 

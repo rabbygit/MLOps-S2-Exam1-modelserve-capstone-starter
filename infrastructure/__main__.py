@@ -3,7 +3,12 @@ import pulumi
 
 import storage
 import registry
-import iam
+
+# iam.py is intentionally NOT imported. The Poridhi sandbox SCP blocks
+# iam:CreateUser and iam:TagPolicy, so the dedicated CI user can't be
+# provisioned. CI uses the sandbox credentials directly instead — fed
+# into GitHub Secrets as AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY at
+# demo time. In a real account, restore `import iam`.
 
 # S6 modules — order doesn't matter, Pulumi figures out the resource graph.
 import network    # noqa: F401  imported for side effects (registers VPC etc.)
@@ -19,10 +24,6 @@ pulumi.export("artifact_bucket_arn", storage.bucket.arn)
 
 pulumi.export("ecr_repository_url", registry.repository.repository_url)
 pulumi.export("ecr_repository_arn", registry.repository.arn)
-
-pulumi.export("ci_access_key_id", iam.access_key.id)
-# Marked as a Pulumi secret automatically; needs --show-secrets to print.
-pulumi.export("ci_secret_access_key", iam.access_key.secret)
 
 # S6 — the EC2 host
 pulumi.export("ec2_public_ip", compute.instance.public_ip)
