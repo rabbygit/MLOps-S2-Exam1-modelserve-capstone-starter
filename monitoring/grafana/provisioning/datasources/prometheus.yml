@@ -1,28 +1,24 @@
 # Grafana datasource provisioning.
 #
-# Mounted at /etc/grafana/provisioning/datasources/prometheus.yml
-# inside the Grafana container. Grafana scans that directory at
-# startup and creates/updates datasources from these files
+# Mounted at /etc/grafana/provisioning/datasources/prometheus.yml. Grafana
+# scans that dir at startup and creates/updates datasources from it.
 
 apiVersion: 1
 
 datasources:
   - name: Prometheus
-    # Explicit UID so the modelserve.json dashboard can reference this
-    # datasource by uid: "prometheus" instead of a random UUID Grafana
-    # would otherwise auto-generate.
+    # Explicit UID so modelserve.json can reference the datasource by
+    # uid: "prometheus" instead of an auto-generated UUID.
     uid: prometheus
     type: prometheus
-    # `proxy` = Grafana queries Prometheus on behalf of the browser
-    # (server-side). Required when Prometheus is reachable on the
-    # docker network but not from the user's browser.
+    # proxy = Grafana queries Prometheus server-side. Needed because
+    # Prometheus is on the docker network, not reachable from the browser.
     access: proxy
-    # Service-name DNS — `prometheus` is the compose service name
     url: http://prometheus:9090
     isDefault: true
-    # Disabled in the UI, prevent accidentally edit
+    # Disabled in the UI to prevent accidental edits.
     editable: false
     jsonData:
-      # Match the scrape_interval in prometheus.yml so step-aware
-      # queries (rate, increase) compute over the right window.
+      # Match prometheus.yml's scrape_interval so step-aware queries
+      # (rate, increase) compute over the right window.
       timeInterval: 15s

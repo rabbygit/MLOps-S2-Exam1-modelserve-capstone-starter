@@ -1,10 +1,10 @@
-"""Apply the Feast schema and push offline features into Redis online store.
+"""Apply the Feast schema and push offline features into Redis.
 
-Single command for the user — does both `feast apply` (registry) and
-`feast materialize` (Redis push) in one shot. Reads .env automatically.
+Does `feast apply` (registry) and `feast materialize` (Redis) in one
+shot. Reads .env automatically.
 
 Run order:
-    1. python training/train.py        (creates features.parquet)
+    1. python training/train.py            (creates features.parquet)
     2. python scripts/materialize_features.py
 """
 from __future__ import annotations

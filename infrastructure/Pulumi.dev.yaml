@@ -1,40 +1,32 @@
 # Stack config for the `dev` stack.
 #
-# Pulumi reads this when you run `pulumi up` (or any pulumi command)
-# while `dev` is the active stack. Switch stacks with `pulumi stack
-# select <name>`. A future `prod` stack would have its own
-# Pulumi.prod.yaml with different values for the same keys.
-#
-# Two namespaces in play:
-#   aws:<key>          — config for the pulumi-aws provider itself
-#   modelserve:<key>   — custom config our code reads (Sessions 6-7+)
+# Two namespaces:
+#   aws:<key>          - config the pulumi-aws provider reads directly
+#   modelserve:<key>   - custom config our code reads via pulumi.Config()
 
 config:
-  # ----- AWS provider config --------------------------------------------------
-  # Region every AWS resource lands in
+  # AWS provider
   aws:region: ap-southeast-1
 
-  # NOTE: Poridhi sandbox SCP denies iam:TagPolicy / iam:TagInstanceProfile,
-  # so `aws:defaultTags` (which would auto-tag every resource including IAM
-  # ones) breaks IAM resource creation. Disabling it for the sandbox demo.
-  # Existing tags on resources created during earlier successful runs are
-  # preserved by ignoreTags below — pulumi won't try to remove them.
-  # In a real account, restore the defaultTags block.
+  # Sandbox SCP denies iam:TagPolicy / iam:TagInstanceProfile, so
+  # aws:defaultTags (which would auto-tag every resource including IAM
+  # ones) breaks IAM creation. Off for the sandbox.
+  # ignoreTags preserves tags on resources created during earlier successful
+  # runs so pulumi doesn't try to untag them. Restore defaultTags in a real account.
   aws:ignoreTags:
     keys:
       - Project
       - Environment
       - ManagedBy
 
-  # ----- modelserve EC2 config (S6) ------------------------------------------
-  # t2.micro is what the Poridhi sandbox SCP allows — anything larger gets
-  # ec2:RunInstances explicitly denied. 1 GB RAM is tight for the 6-service
-  # compose stack; user_data adds a 2 GB swap file as mitigation.
+  # modelserve EC2 config
+  # t2.micro is what the sandbox SCP allows. Larger types get ec2:RunInstances
+  # denied. 1 GB RAM is tight for 6 services; user_data adds a 2 GB swap file.
   modelserve:instance_type: t2.micro
 
-  # Path to the public key from `ssh-keygen`. Relative to infrastructure/.
-  # The private key stays on this machine; only the .pub goes to AWS.
+  # Public key from ssh-keygen, relative to infrastructure/.
+  # Private key stays on this machine.
   modelserve:ssh_public_key_path: keys/modelserve.pub
 
-  # user-data clones from here. Public repo, no auth needed.
+  # user_data clones this. Public repo, no auth needed.
   modelserve:repo_url: https://github.com/rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter

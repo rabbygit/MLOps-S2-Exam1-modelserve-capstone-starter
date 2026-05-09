@@ -1,8 +1,9 @@
 """Feast entities, source, and feature view for the fraud-detection model.
 
-The schema here must match exactly what train.py writes to features.parquet
-and what app/feature_client.py requests at inference time. If these three
-ever drift, Feast will silently return [None] for the missing columns.
+The schema here has to match exactly what train.py writes to
+features.parquet and what app/feature_client.py requests at inference
+time. If these three drift, Feast silently returns [None] for the
+missing columns.
 """
 from __future__ import annotations
 
@@ -17,18 +18,14 @@ PARQUET_PATH = str(
     (Path(__file__).resolve().parent.parent / "training" / "features.parquet")
 )
 
-# ---------------------------------------------------------------------------
-# Entity — the join key for online lookups
-# ---------------------------------------------------------------------------
+# Entity. Join key for online lookups.
 cc_num = Entity(
     name="cc_num",
     join_keys=["cc_num"],
-    description="Credit card number — join key for transaction features.",
+    description="Credit card number, the join key for transaction features.",
 )
 
-# ---------------------------------------------------------------------------
-# Source — where the offline (training-time) features live
-# ---------------------------------------------------------------------------
+# Source. Where the offline (training-time) features live.
 fraud_source = FileSource(
     name="fraud_features_source",
     path=PARQUET_PATH,
@@ -36,9 +33,7 @@ fraud_source = FileSource(
     created_timestamp_column="created",
 )
 
-# ---------------------------------------------------------------------------
-# FeatureView — what the online store will hold and serve
-# ---------------------------------------------------------------------------
+# FeatureView. What the online store holds and serves.
 fraud_features = FeatureView(
     name="fraud_features",
     entities=[cc_num],

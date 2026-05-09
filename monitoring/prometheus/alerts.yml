@@ -1,21 +1,18 @@
 # Prometheus alert rules for ModelServe.
 #
-# Mounted at /etc/prometheus/alerts.yml in the prometheus container,
-# referenced from prometheus.yml's `rule_files`. Reload Prometheus
-# (`docker compose kill -s SIGHUP prometheus`) after editing, or it
-# picks them up on the next restart.
+# Mounted at /etc/prometheus/alerts.yml. Referenced from prometheus.yml's
+# rule_files. Reload Prometheus with `docker compose kill -s SIGHUP prometheus`
+# after editing, or just restart it.
 #
-# All metric names come from app/metrics.py. Job label `modelserve-api`
-# matches the scrape_configs job_name in prometheus.yml.
+# Metric names are from app/metrics.py. Job label `modelserve-api` matches
+# the scrape_configs job_name in prometheus.yml.
 
 groups:
   - name: modelserve-api
-    interval: 30s            # how often this group is evaluated (overrides global)
+    interval: 30s            # this group's eval cadence (overrides global)
     rules:
 
-      # ---------------------------------------------------------------
-      # 1. SERVICE DOWN — the scraper can't reach /metrics for >1 min.
-      # ---------------------------------------------------------------
+      # 1. SERVICE DOWN. Scraper can't reach /metrics for > 1 min.
       - alert: APIServiceDown
         expr: up{job="modelserve-api"} == 0
         for: 1m
@@ -25,16 +22,12 @@ groups:
         annotations:
           summary: "ModelServe API is down"
           description: |
-            Prometheus has been unable to scrape the FastAPI /metrics
-            endpoint for over 1 minute on instance {{ $labels.instance }}.
-            Predictions are unavailable. Check `docker compose ps api`
-            and `docker compose logs api`.
+            Prometheus hasn't scraped /metrics on {{ $labels.instance }}
+            for over a minute. Predictions are unavailable.
+            Check `docker compose ps api` and `docker compose logs api`.
 
-      # ---------------------------------------------------------------
-      # 2. HIGH LATENCY (p95) — 95th-percentile prediction latency stays
-      #    above 500 ms for 5 min. The histogram exposes _bucket series
-      #    we can pipe into histogram_quantile().
-      # ---------------------------------------------------------------
+      # 2. HIGH LATENCY (p95). p95 above 500 ms for 5 min.
+      # The histogram's _bucket series feed into histogram_quantile().
       - alert: HighPredictionLatencyP95
         expr: |
           histogram_quantile(
@@ -48,16 +41,13 @@ groups:
         annotations:
           summary: "p95 prediction latency above 500ms"
           description: |
-            95th-percentile end-to-end prediction latency has been above
-            500 ms for the last 5 minutes (current: {{ $value | printf "%.3f" }}s).
-            Likely culprits: Feast/Redis slowness, model load contention,
-            or worker saturation. Check the Grafana ModelServe dashboard.
+            p95 latency above 500 ms for 5 min (current: {{ $value | printf "%.3f" }}s).
+            Likely Feast/Redis slowness, model load contention, or worker
+            saturation. Check the Grafana dashboard.
 
-      # ---------------------------------------------------------------
-      # 3. HIGH ERROR RATE — more than 5% of predictions are failing
-      #    over the last 2 min. Excludes the 'no traffic' case by also
-      #    requiring at least 0.1 req/s of traffic to avoid flapping.
-      # ---------------------------------------------------------------
+      # 3. HIGH ERROR RATE. > 5% errors for 2 min. Anti-flap guard:
+      # require >= 0.1 req/s of real traffic, otherwise zero-traffic noise
+      # can trip the alert.
       - alert: HighPredictionErrorRate
         expr: |
           (
@@ -74,17 +64,13 @@ groups:
         annotations:
           summary: "Prediction error rate above 5%"
           description: |
-            More than 5% of /predict calls are failing over the last 2 minutes
-            (current rate: {{ $value | printf "%.2%" }}).
-            Inspect prediction_errors_total{reason} to see if it's
-            missing_features (404s — entity not materialized) or
-            model_error (500s — code/data issue).
+            > 5% of /predict calls failing over 2 min (current: {{ $value | printf "%.2%" }}).
+            Check prediction_errors_total{reason} to see if it's
+            missing_features (404, entity not materialized) or
+            model_error (500, code/data issue).
 
-      # ---------------------------------------------------------------
-      # 4. FEAST MISS RATE — system-specific. High misses means materialize
-      #    didn't cover the entities being predicted on. Same anti-flap
-      #    guard as the error rate alert.
-      # ---------------------------------------------------------------
+      # 4. FEAST MISS RATE. System-specific. High misses means materialize
+      # didn't cover the entities being predicted on. Same anti-flap guard.
       - alert: FeastHighMissRate
         expr: |
           (
@@ -101,7 +87,6 @@ groups:
         annotations:
           summary: "Feast online-store miss rate above 20%"
           description: |
-            More than 20% of feature lookups are missing in Redis over
-            the last 5 minutes. Re-run `python scripts/materialize_features.py`
-            on the host, or investigate whether new entities are appearing
-            that haven't been materialized yet.
+            > 20% of feature lookups missing in Redis over 5 min.
+            Re-run `python scripts/materialize_features.py` on the host,
+            or check if new entities aren't materialized yet.

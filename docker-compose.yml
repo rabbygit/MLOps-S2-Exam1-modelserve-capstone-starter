@@ -37,11 +37,11 @@ services:
         condition: service_healthy
     environment:
       MLFLOW_BACKEND_STORE_URI: postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD:-mlflow}@postgres:5432/${POSTGRES_DB:-mlflow}
-      # Local default writes to the volume; EC2 user_data sets this to s3://<bucket>
-      # so artifacts go to the durable bucket (ADR-3).
+      # Local default writes to the volume. EC2 user_data sets this to
+      # s3://<bucket> so artifacts land in the durable bucket (ADR-3).
       MLFLOW_DEFAULT_ARTIFACT_ROOT: ${MLFLOW_DEFAULT_ARTIFACT_ROOT:-/mlartifacts}
     volumes:
-      # Used only when MLFLOW_DEFAULT_ARTIFACT_ROOT is the local path. Harmless on EC2.
+      # Only used when MLFLOW_DEFAULT_ARTIFACT_ROOT is the local path. Harmless on EC2.
       - mlflow_artifacts:/mlartifacts
     ports:
       - "5000:5000"
@@ -54,7 +54,7 @@ services:
     networks: [modelserve]
 
   api:
-    # Both `build:` and `image:` so the same compose file works two ways:
+    # Same compose file works two ways:
     #   local: `docker compose build api` builds and tags as modelserve-api:local
     #   EC2:   user_data sets API_IMAGE=<ecr-url>:latest, `pull` fetches from ECR
     build:
@@ -73,9 +73,9 @@ services:
       FEAST_REPO_PATH: /app/feast_repo
       REDIS_CONNECTION_STRING: redis:6379
     volumes:
-      # Bind-mount the host's feast_repo so registry.db updates are live in the
-      # container without rebuilding the image. After `python scripts/materialize_features.py`,
-      # `docker compose restart api` is enough — no `docker compose build api` needed.
+      # Bind-mount feast_repo so registry.db updates are live in the
+      # container without a rebuild. `materialize_features.py` then
+      # `docker compose restart api` is enough.
       - ./feast_repo:/app/feast_repo:ro
     ports:
       - "8000:8000"
@@ -83,7 +83,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.51.0
-    # --web.enable-lifecycle lets us reload rules with a SIGHUP or
+    # --web.enable-lifecycle lets us reload rules via SIGHUP or
     # POST /-/reload without restarting the container.
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -107,20 +107,20 @@ services:
       prometheus:
         condition: service_healthy
     environment:
-      # Default admin password — overridden via .env for any non-dev use.
+      # Default admin password. Override via .env for anything non-dev.
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
-      # Skip the post-login "change password" wall — provisioned admin.
+      # Skip the post-login "change password" wall.
       GF_AUTH_ANONYMOUS_ENABLED: "false"
-      # Disable Grafana's update banner / phone-home pings
+      # No update banners / phone-home.
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     volumes:
       # Provisioning files (datasources + dashboard provider). Read-only
-      # because Grafana shouldn't mutate them.
+      # so Grafana can't mutate them.
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      # Dashboard JSON files — read-write so allowUiUpdates: true works.
+      # Dashboard JSONs. Read-write so allowUiUpdates: true works.
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
-      # Persistent state: users, plugins, sqlite db. Survives `down`.
+      # Persistent state (users, plugins, sqlite). Survives `down`.
       - grafana_data:/var/lib/grafana
     ports:
       - "3000:3000"

@@ -1,9 +1,9 @@
 """Unit tests for the FastAPI inference service.
 
-Construct TestClient WITHOUT a `with` block on purpose — that bypasses
-Starlette's lifespan, which would otherwise try to reach a live MLflow
-server and Redis. Fakes are injected via FastAPI's dependency_overrides
-so the endpoint code runs against in-memory mocks.
+TestClient is constructed WITHOUT a `with` block on purpose. That
+bypasses Starlette's lifespan, which would otherwise try to reach a
+live MLflow server and Redis. Fakes are injected via FastAPI's
+dependency_overrides so the endpoint code runs against in-memory mocks.
 """
 from __future__ import annotations
 
@@ -60,18 +60,14 @@ def client(fake_loader, fake_feature_client) -> TestClient:
     app.dependency_overrides.clear()
 
 
-# ---------------------------------------------------------------------------
 # /health
-# ---------------------------------------------------------------------------
 def test_health_returns_status_and_version(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy", "model_version": "1"}
 
 
-# ---------------------------------------------------------------------------
 # POST /predict
-# ---------------------------------------------------------------------------
 def test_post_predict_returns_full_response(client, fake_loader, fake_feature_client):
     response = client.post("/predict", json={"entity_id": 1234567890123456})
     assert response.status_code == 200
@@ -99,9 +95,7 @@ def test_post_predict_missing_features_returns_404(client, fake_feature_client):
     assert "not materialized" in response.json()["detail"]
 
 
-# ---------------------------------------------------------------------------
 # GET /predict/{id}
-# ---------------------------------------------------------------------------
 def test_get_predict_with_explain_returns_features(client):
     response = client.get("/predict/1234567890123456?explain=true")
     assert response.status_code == 200
@@ -116,11 +110,9 @@ def test_get_predict_without_explain_omits_features(client):
     assert "features" not in response.json()
 
 
-# ---------------------------------------------------------------------------
 # /metrics
-# ---------------------------------------------------------------------------
 def test_metrics_endpoint_returns_prometheus_text(client):
-    # Hit /predict once so the counter has something non-zero to render.
+    # Hit /predict once so the counter has a non-zero value to render.
     client.post("/predict", json={"entity_id": 1234567890123456})
 
     response = client.get("/metrics")

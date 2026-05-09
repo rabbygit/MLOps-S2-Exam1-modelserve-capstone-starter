@@ -1,16 +1,16 @@
 # ModelServe CI/CD pipeline.
 #
-# Five jobs:
-#   test               unit tests with mocks, fast (~5 sec)
-#   lint               ruff against the source tree
-#   pulumi-validate    PRs only — verify the Pulumi program parses
-#   build-and-push     build api image, scan with Trivy, push to ECR (push-to-main only)
-#   deploy             SSH to EC2, swap API_IMAGE, verify /health (push-to-main only)
+# Jobs:
+#   test               unit tests with mocks (~5 sec)
+#   lint               ruff
+#   pulumi-validate    PRs only. Verify the Pulumi program parses.
+#   build-and-push     build api image, scan with Trivy, push to ECR. push-to-main only.
+#   deploy             SSH to EC2, swap API_IMAGE, verify /health. push-to-main only.
 #
-# Required GitHub secrets (set with `gh secret set`, see README):
-#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY    from `pulumi stack output ci_access_key_id` etc.
-#   EC2_HOST                                    from `pulumi stack output ec2_public_ip`
-#   EC2_SSH_KEY                                 contents of infrastructure/keys/modelserve
+# Required GitHub secrets (see README):
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+#   EC2_HOST       from `pulumi stack output ec2_public_ip`
+#   EC2_SSH_KEY    contents of infrastructure/keys/modelserve
 
 name: CI/CD
 
@@ -61,9 +61,9 @@ jobs:
       - name: Install ruff
         run: pip install ruff==0.4.10
       - name: Run ruff
-        # E501 — long lines kept for clarity (not enforced).
-        # E402 — `load_dotenv()` runs before some imports by design (env vars
-        # need to be set before modules that read them at import time).
+        # E501: long lines kept for clarity, not enforced.
+        # E402: load_dotenv() runs before some imports by design (env vars
+        # need to be set before the modules that read them at import time).
         run: ruff check app/ training/ scripts/ infrastructure/ --select=E,F --ignore=E501,E402
 
   # ===========================================================================
@@ -85,12 +85,12 @@ jobs:
         run: |
           mkdir -p keys
           ssh-keygen -t ed25519 -f keys/modelserve -N "" -C "ci-validate"
-      - name: Validate the Pulumi program parses cleanly
+      - name: Validate the Pulumi program parses
         working-directory: infrastructure
         run: |
-          # Importing all modules exercises the same Python evaluation Pulumi
-          # does at the start of `pulumi up`, just without an active stack.
-          python -c "import storage, registry, iam, network, keypair, instance_role, compute"
+          # Importing the modules exercises the same Python evaluation
+          # Pulumi runs at the start of `pulumi up`, without a live stack.
+          python -c "import storage, registry, network, keypair, instance_role, compute"
           echo "Pulumi program imports cleanly"
 
   # ===========================================================================
@@ -131,7 +131,7 @@ jobs:
             -t ${{ steps.meta.outputs.image_uri }}:latest \
             .
 
-      - name: Trivy scan (block on CRITICAL only — HIGH is too noisy on slim base images)
+      - name: Trivy scan (block on CRITICAL only; HIGH is too noisy on slim base images)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ steps.meta.outputs.image_tag }}
@@ -140,7 +140,7 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
 
-      - name: Push to ECR (only reached if Trivy passed)
+      - name: Push to ECR (only if Trivy passed)
         run: |
           docker push ${{ steps.meta.outputs.image_tag }}
           docker push ${{ steps.meta.outputs.image_uri }}:latest
@@ -163,7 +163,7 @@ jobs:
       - name: Determine deploy SHA
         id: sha
         run: |
-          # workflow_dispatch with a custom SHA = rollback path
+          # workflow_dispatch with a custom SHA = rollback path.
           SHA="${{ github.event.inputs.deploy_sha || github.sha }}"
           echo "sha=$SHA" >> $GITHUB_OUTPUT
 
@@ -177,14 +177,14 @@ jobs:
           set -e
           cd modelserve
 
-          # Replace API_IMAGE in .env if present, otherwise append.
+          # Update API_IMAGE in .env (replace if present, append if not).
           if grep -q '^API_IMAGE=' .env; then
             sed -i "s|^API_IMAGE=.*|API_IMAGE=${NEW_IMAGE}|" .env
           else
             echo "API_IMAGE=${NEW_IMAGE}" >> .env
           fi
 
-          # ECR login (creds come from EC2 instance role via IMDS).
+          # ECR login. Creds come from the EC2 instance role via IMDS.
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
             docker login --username AWS --password-stdin ${IMAGE_URI}
 

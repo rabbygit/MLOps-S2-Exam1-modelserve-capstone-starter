@@ -1,7 +1,7 @@
-"""Loads the fraud-detection model from the MLflow Model Registry.
+"""Loads the fraud-detection model from MLflow Registry.
 
-Uses the `sklearn` flavor (not `pyfunc`) so that `predict_proba` survives
-the round-trip — the API needs the probability, not just the label.
+Uses the sklearn flavor (not pyfunc) so predict_proba survives the
+round-trip. The API needs the probability, not just the label.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class ModelLoader:
     def predict(self, features: pd.DataFrame) -> tuple[int, float]:
         """Return (label, fraud_probability) for a single-row feature frame."""
         if self.model is None:
-            raise RuntimeError("Model not loaded — call load() first.")
+            raise RuntimeError("Model not loaded. Call load() first.")
         proba = float(self.model.predict_proba(features)[0, 1])
         label = int(proba >= 0.5)
         return label, proba

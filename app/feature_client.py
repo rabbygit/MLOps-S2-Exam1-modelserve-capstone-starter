@@ -1,9 +1,9 @@
-"""Feast online-store wrapper for the inference service.
+"""Feast online-store wrapper.
 
-We use the Feast SDK (not direct Redis access) so that the entity-key
-serialization, TTL, and feature-view contract stay consistent with what
-`scripts/materialize_features.py` writes into Redis. Bypassing Feast
-would silently desync the moment either side changes.
+Uses the Feast SDK rather than direct Redis access. Keeps entity-key
+serialization and the feature-view contract consistent with what
+scripts/materialize_features.py writes. Bypassing Feast would silently
+desync the moment either side changes.
 """
 from __future__ import annotations
 
@@ -47,9 +47,9 @@ class FeatureClient:
     def get_features(self, entity_id: int) -> tuple[pd.DataFrame, dict]:
         """Fetch features for a cc_num.
 
-        Returns (model_input_df, raw_values_dict). The DataFrame has
-        columns in the exact order the model was trained on; the dict
-        is suitable for the `?explain=true` response body.
+        Returns (model_input_df, raw_values_dict). DataFrame columns are
+        in the order the model was trained on; the dict is for the
+        ?explain=true response body.
         """
         result = self.store.get_online_features(
             features=FEATURE_REFS,

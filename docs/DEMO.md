@@ -1,56 +1,48 @@
-# ModelServe — Demo Runbook (~70 min)
+# Demo Runbook
 
-> Cheat sheet for the live demo. Read it the day before; use it on the day.
+Notes for the live demo. ~70 minutes total if everything goes right.
 
-## Exam VM environment (Poridhi sandbox)
+## What's already on the Poridhi VM
 
-What's pre-installed on the Poridhi VM (Ubuntu 24.04 noble):
-- `docker`, `docker compose`, `git`, `python3` (3.12), `pip3`, `jq`, `ssh-keygen`
+Pre-installed: docker, docker compose, git, python3 (3.12), pip3, jq, ssh-keygen.
 
-What needs installing every fresh VM (~3 min):
-- `pulumi` (one-line installer)
-- `gh` (apt repo)
-- `aws` CLI v2 (AWS bundle, since `awscli` isn't in noble's apt)
+Need to install on every fresh VM: pulumi, gh, AWS CLI v2, python3.12-venv. About 3 minutes total.
 
-Python 3.12 (default on this VM) is fine for Pulumi + pytest + ruff. Training runs on the EC2 (which has its own Python 3.11 via `dnf`), so the host Python version doesn't actually matter much.
+Python 3.12 is fine for pulumi + pytest + ruff. Training runs on the EC2 (Python 3.11 from dnf), so the host's Python doesn't matter.
 
-## Day-before checklist
+## Day before
 
-- Repo public on GitHub at `https://github.com/rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter`
-- **`main` branch must be up to date** — `session-8-9` (or whatever working branch) is merged into `main`. The CI workflow only triggers on push to `main`, and the cloned repo's `main` is what `pulumi up` reads from. Verify with: `git ls-remote origin main` should match the latest commit you want demoed.
-- Re-read the 5 ADRs in `docs/ARCHITECTURE.md` once
-- Re-read this file
-- Have AWS sandbox creds ready (or know where to grab them on demo day)
-- Sleep
+- Repo is public on GitHub
+- `main` branch has the latest code (not just a working branch). The CI workflow only triggers on push to `main`, and `pulumi up` clones from `main`. Confirm with `git ls-remote origin main`.
+- Read through `docs/ARCHITECTURE.md` once, especially the 5 ADRs
+- Read this file
+- AWS sandbox creds ready
 
 ## 30 minutes before
 
 Open these tabs:
 - GitHub repo → Actions
 - GitHub repo → Settings → Secrets
-- `docs/ARCHITECTURE.md` (in editor)
 
-Two terminal windows ready (both on the Poridhi VM):
-- one in repo root
-- one for SSH later
-
-Confirm AWS sandbox credentials are at hand, and the Poridhi VM is provisioned.
+Two terminal windows:
+- One in the repo root
+- One I'll use for SSH later
 
 ---
 
-## T-5 → T+0 — Bootstrap the exam VM (~3 min)
+## T-5 → T+0: Bootstrap the VM
 
-Runs once per fresh Poridhi VM. The exam VM doesn't have Pulumi, gh, or AWS CLI v2.
+Runs once per fresh Poridhi VM. About 3 minutes.
 
-**Where to fit this in:** if the VM is alive 30 minutes before demo time, do this in the prep window so T+0 starts with all tools ready. If you only get the VM at demo start, this eats into the first ~3 minutes of the 10-min cold-start budget — still fits.
+If the VM is up 30 minutes before demo, do this in the prep window. If not, it eats the first 3 minutes of the cold-start budget.
 
 ```bash
-# 1. Pulumi
+# Pulumi
 curl -fsSL https://get.pulumi.com | sh
 echo 'export PATH=$PATH:$HOME/.pulumi/bin' >> ~/.bashrc
 export PATH=$PATH:$HOME/.pulumi/bin
 
-# 2. gh CLI + python venv module + unzip
+# gh CLI + python venv module + unzip
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
 sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -58,86 +50,81 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githu
   | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 sudo apt update && sudo apt install -y gh unzip python3.12-venv
 
-# 3. AWS CLI v2 (apt's `awscli` was dropped in noble)
+# AWS CLI v2 (apt's awscli was dropped in noble)
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install
 rm -rf /tmp/awscliv2.zip /tmp/aws
 
-# 4. Verify everything is wired
+# Verify
 docker --version && docker compose version
 pulumi version && gh --version && aws --version && python3 --version
 ```
 
-Then auth + identity:
+Then auth and identity:
 
 ```bash
-# 5. gh login (browser-based one-time code)
+# gh login (browser-based one-time code, copy code into laptop browser)
 gh auth login -h github.com -s repo,workflow -w
-# Answer prompts: HTTPS → Y → Web browser. Paste the code, approve.
-gh auth status
 
-# 6. Set the default repo for `gh secret set`, `gh run watch`, etc.
-# Without this, every gh command errors with "no default remote repository".
+# Set default repo so gh secret set / gh run watch work
 gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter
 
-# 7. Git identity (needed before any `git commit`)
+# Git identity (needed for git commit)
 git config --global user.name "Rabby"
 git config --global user.email "<your-github-email>"
 ```
 
 ---
 
-## T+0 — Cold start, AWS provisioning
+## T+0: Cold start, AWS provisioning
 
-Get fresh AWS creds from the sandbox. Run from your home directory (or anywhere — the script clones the repo first).
+Get fresh AWS creds from the sandbox.
 
 ```bash
-# Set env vars first so they're inherited by everything downstream.
-# IMPORTANT: PULUMI_CONFIG_PASSPHRASE must match what you used the first
-# time you ran `pulumi stack init`. If unsure, just pick one here and
-# export it BEFORE `stack init`.
+# Set env vars first so everything downstream inherits them.
+# PULUMI_CONFIG_PASSPHRASE has to match what was used at `stack init` time.
+# Just always use the same one.
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_REGION=ap-southeast-1
 export PULUMI_CONFIG_PASSPHRASE=modelserve
 
-# Sanity-check AWS auth before doing anything.
+# Sanity check AWS auth
 aws sts get-caller-identity
-# Expected: JSON with the sandbox account ID.
 
-# Clone the repo + set up the EC2 SSH key.
+# Clone + EC2 SSH key
 git clone https://github.com/rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter modelserve
 cd modelserve
 mkdir -p infrastructure/keys
 ssh-keygen -t ed25519 -f infrastructure/keys/modelserve -N "" -C "modelserve-demo"
 
-# Pulumi venv. python3.12-venv was installed in the bootstrap step.
+# Pulumi venv
 cd infrastructure
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Pulumi state backend + stack (idempotent — works whether or not stack exists).
+# Pulumi state + stack (idempotent)
 pulumi login --local
 pulumi stack select dev 2>/dev/null || pulumi stack init dev
 
-# Provision (~2 min).
+# Provision (~2 min)
 pulumi up --yes
 ```
 
-Tell the TA: *"Provisioning AWS infra via Pulumi — VPC, EC2, ECR, S3, IAM. Two minutes."*
+Say something like: "Provisioning AWS infra via Pulumi - VPC, EC2, ECR, S3, IAM. Two minutes."
 
-Keep `ARCHITECTURE.md` open on the side while it runs.
+Keep ARCHITECTURE.md open while it runs.
 
 ---
 
-## T+2 — GitHub secrets, trigger CI
+## T+2: GitHub secrets, trigger CI
 
-Pulumi finished. Stack outputs are now available.
+Pulumi finished. Stack outputs are ready.
 
 ```bash
-# still inside infrastructure/
-# AWS creds come from the sandbox env vars (the dedicated `ci` user
-# can't be created in the Poridhi sandbox — see comment in __main__.py).
+# Still in infrastructure/
+# Using sandbox creds directly because the Poridhi sandbox SCP blocks
+# iam:CreateUser, so the dedicated `ci` user can't be created.
 gh secret set AWS_ACCESS_KEY_ID -b "$AWS_ACCESS_KEY_ID"
 gh secret set AWS_SECRET_ACCESS_KEY -b "$AWS_SECRET_ACCESS_KEY"
 gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"
@@ -145,65 +132,60 @@ gh secret set EC2_SSH_KEY -b "$(cat keys/modelserve)"
 
 cd ..
 
-# trigger the workflow with an empty commit
+# Empty commit to trigger CI
 git commit --allow-empty -m "demo trigger"
 git push origin main
-```
 
-Tell the TA: *"Secrets are synced from this fresh stack. Pushed to main, which triggers the GitHub Actions workflow."*
-
-Open the Actions tab. Watch the run from the second terminal:
-
-```bash
+# Watch the run
 gh run watch
 ```
 
 ---
 
-## T+3 to T+18 — Architecture walkthrough while CI runs
+## T+3 to T+18: Architecture walkthrough while CI runs
 
-Roughly 15 minutes. The pipeline takes ~6-8 min; EC2 bootstrap takes ~7 min in parallel. Use the time.
+Pipeline takes about 6-8 minutes. EC2 bootstrap takes about 7 minutes in parallel. Use the time.
 
-### What to show, in order
+### Walk through, in order
 
-1. **`docs/ARCHITECTURE.md` — section 2.2 (production diagram).**
-   *"Single EC2 in a public subnet. Compose stack runs on it. S3 holds artifacts. ECR holds the api image once CI populates it."*
+1. ARCHITECTURE.md section 2.2 (production diagram). Single EC2 in a public subnet. Compose stack runs on it. S3 holds artifacts. ECR holds the api image once CI populates it.
 
-2. **The 5 ADRs.** Read the title, the decision, and one trade-off. Don't read the full text.
-   - ADR-1 — Why single-EC2: *"Sandbox lifecycle. SPOF acknowledged."*
-   - ADR-2 — Incremental update, not destroy-and-recreate: *"CI never destroys. Pulumi stays manual."*
-   - ADR-3 — Postgres ephemeral, S3 durable: *"RDS is out of scope. Retrain on cold start; artifacts in S3."*
-   - ADR-4 — Multi-stage Docker → 732 MB: *"mlflow-skinny + --no-compile + strip tests."*
-   - ADR-5 — Four alerts, UID-pinned datasource: *"FeastHighMissRate is system-specific."*
+2. The 5 ADRs. Read the title, the decision, one trade-off. Don't read the full text.
+    - ADR-1: Why single EC2. Sandbox lifecycle, SPOF acknowledged.
+    - ADR-2: Incremental update over destroy-and-recreate. CI never destroys, Pulumi stays manual.
+    - ADR-3: Postgres ephemeral, S3 durable. RDS is out of scope. Retrain on cold start; artifacts in S3.
+    - ADR-4: Multi-stage Docker, 732 MB. mlflow-skinny + --no-compile + strip tests.
+    - ADR-5: Four alerts, UID-pinned datasource. FeastHighMissRate is system-specific.
 
-3. **Pipeline running.** Refresh the Actions page. Show test → build-and-push → deploy.
+3. Refresh the Actions page. Show test → build → deploy.
 
-4. **`infrastructure/compute.py`** if asked. Walk through:
-   - SSM AMI lookup (latest AL2023, no hardcoded IDs)
-   - `metadata_options.http_put_response_hop_limit=2` — *"so the mlflow container can reach IMDS for S3 creds"*
-   - `user_data_replace_on_change=True` — *"editing user_data forces EC2 replace"*
-   - Output substitution into user_data
+4. If asked about `infrastructure/compute.py`:
+    - SSM/AMI lookup (latest AL2023, no hardcoded IDs)
+    - `metadata_options.http_put_response_hop_limit=2` so the mlflow container can reach IMDS for S3 creds
+    - `user_data_replace_on_change=True` forces EC2 replace when user_data changes
+    - Output substitutions into user_data
 
-5. **`.github/workflows/deploy.yml`** if asked — three jobs.
+5. If asked about the workflow file: three jobs, plus lint and pulumi validate.
 
-### TA questions to be ready for
+### Questions I should be ready for
 
-| Q | A |
+| Question | Answer |
 |---|---|
-| Why single-EC2? | ADR-1. Tradeoff is SPOF, acceptable for sandbox. |
+| Why single EC2? | ADR-1. SPOF acknowledged, fine for sandbox. |
 | Why no RDS? | Out of scope per exam. ADR-3. |
-| Why Postgres on EC2 if it dies on destroy? | Re-running train.py is cheap. Orphan trade-off documented + lifecycle rule. |
+| Why Postgres on EC2 if it dies on destroy? | Retraining is cheap. Orphan trade-off documented + lifecycle rule. |
 | Why is ECR empty before first CI run? | ADR-2. CI populates it. Build-on-EC2 is the bridge. |
 | Why mlflow-skinny? | Trimmed runtime deps for the api. Saves ~150 MB. |
 | Why hop_limit=2? | Docker containers are 2 hops from IMDS. |
 | Why no auth on /predict? | Known limitation. Sandbox demo. |
-| What happens between git push and serving? | test → ECR push → SSH to EC2 → set API_IMAGE → docker compose pull api && up -d api → /health verify. ~6 min. |
+| Git push to serving, what happens? | test → ECR push → SSH to EC2 → set API_IMAGE → docker compose pull api && up -d api → /health verify. ~6 min. |
+| Why t2.micro? | Sandbox SCP denies larger types. Within the exam's typical envelope anyway. |
 
 ---
 
-## T+9 to T+12 — Pipeline turns green
+## T+9 to T+12: Pipeline turns green
 
-All three jobs check ✓ in the Actions tab. EC2 bootstrap finishes around the same time. Quick sanity check:
+All three jobs check in the Actions tab. EC2 bootstrap finishes around the same time. Sanity check:
 
 ```bash
 EC2_IP=$(cd infrastructure && pulumi stack output ec2_public_ip)
@@ -213,7 +195,7 @@ curl http://$EC2_IP:8000/health
 
 ---
 
-## T+18 to T+25 — Live demo
+## T+18 to T+25: Live demo
 
 ```bash
 # Health
@@ -231,15 +213,15 @@ curl "http://$EC2_IP:8000/predict/$ENTITY_ID?explain=true"
 # Metrics
 curl http://$EC2_IP:8000/metrics | head -30
 
-# Open Grafana — admin/admin
-open http://$EC2_IP:3000
+# Grafana - admin/admin
+echo "http://$EC2_IP:3000"
 ```
 
-Tell the TA: *"Predictions return the model version. Grafana is auto-provisioned — no UI clicks after compose up. The dashboard has 8 panels: latency p50/p95/p99, request rate, error rate, model version, hit ratio, etc."*
+Predictions return the model version. Grafana auto-provisioned. Dashboard has 8 panels: latency p50/p95/p99, request rate, error rate, model version, hit ratio, etc.
 
 ---
 
-## T+25 to T+40 — Generate load, watch dashboards
+## T+25 to T+40: Generate load, watch dashboards
 
 ```bash
 for i in $(seq 1 200); do
@@ -250,22 +232,22 @@ for i in $(seq 1 200); do
 done
 ```
 
-Refresh Grafana. Total Requests, Request Rate, and the latency panel will all populate.
+Refresh Grafana. Total Requests, Request Rate, latency panel populate.
 
-### TA picks something to look up on the dashboard
+### TA picks something to look up
 
 | TA asks | Where to point |
 |---|---|
 | "p99 latency last 5 min" | Latency panel, red line. Hover for value. |
-| "Hit ratio" | Stat panel top-right. Should be ~100%. |
-| "Total predictions since deploy" | Total Requests stat panel. |
+| "Hit ratio" | Stat panel top right. ~100%. |
+| "Total predictions" | Total Requests stat panel. |
 | "Why is p99 above p95?" | Histogram bucketing + tail latency. Some requests hit a slow Redis or a model swap moment. |
 
 ---
 
-## T+40 to T+55 — Failure injection
+## T+40 to T+55: Failure injection
 
-The TA picks one or two from this set.
+TA picks one or two from this set.
 
 ### Kill api → APIServiceDown alert fires
 
@@ -274,7 +256,7 @@ ssh -i infrastructure/keys/modelserve ec2-user@$EC2_IP \
   "cd modelserve && docker compose stop api"
 ```
 
-Open `http://$EC2_IP:9090/alerts`. Wait ~60 s. `APIServiceDown` flips to firing.
+Open `http://$EC2_IP:9090/alerts`. Wait ~60s. APIServiceDown flips to firing.
 
 ```bash
 ssh -i infrastructure/keys/modelserve ec2-user@$EC2_IP \
@@ -291,17 +273,17 @@ for i in $(seq 1 100); do
 done
 ```
 
-Wait 2 min. Alert fires. Show Grafana → "Error Rate (by reason)" → `missing_features` line spikes.
+Wait 2 min. Alert fires. Show Grafana → "Error Rate (by reason)" → missing_features line spikes.
 
 ### Rollback to a previous commit
 
 ```bash
 git log --oneline -5
 
-# trigger the workflow with an explicit SHA
+# Trigger workflow with explicit SHA
 gh workflow run deploy.yml -f deploy_sha=<old-sha>
 
-# OR manual SSH if workflow_dispatch isn't wired:
+# Or manual SSH if workflow_dispatch isn't wired
 ssh -i infrastructure/keys/modelserve ec2-user@$EC2_IP \
   "cd modelserve && sed -i 's|API_IMAGE=.*|API_IMAGE=<ecr-url>:<old-sha>|' .env && \
    docker compose pull api && docker compose up -d api"
@@ -321,7 +303,7 @@ gh run watch
 
 ---
 
-## T+55 to T+60 — Wrap-up + teardown
+## T+55 to T+60: Wrap up + teardown
 
 Final TA questions, then:
 
@@ -330,7 +312,7 @@ cd infrastructure
 pulumi destroy --yes
 ```
 
-Tell the TA: *"All 23 AWS resources destroyed. force_delete on ECR handles non-empty repo. Lifecycle rule sweeps S3 orphans. Pulumi state lives locally — fresh start next session."*
+All 23 AWS resources destroyed. force_delete on ECR handles the non-empty repo. Lifecycle rule sweeps S3 orphans. Pulumi state lives locally so next session is a fresh start.
 
 ---
 
@@ -338,53 +320,37 @@ Tell the TA: *"All 23 AWS resources destroyed. force_delete on ECR handles non-e
 
 | Problem | Recovery |
 |---|---|
-| `pulumi: command not found` after install | `export PATH=$PATH:$HOME/.pulumi/bin`. Add to `~/.bashrc` if not already. |
-| `pulumi login --local` errors "expected project to be an object, was '<nil>'" | Cloned `main` but the work is on another branch. `git checkout session-8-9` (or merge to main first). |
+| `pulumi: command not found` after install | `export PATH=$PATH:$HOME/.pulumi/bin`. Add to `~/.bashrc` if not there. |
+| `pulumi login --local` errors "expected project to be an object, was '<nil>'" | Cloned `main` but the work is on another branch. `git checkout <branch>`, or merge to main first. |
 | `python3 -m venv` says "ensurepip is not available" | `sudo apt install -y python3.12-venv`, then `rm -rf .venv && python3 -m venv .venv` |
-| `pip install` says "externally-managed-environment" | The venv isn't active. Run `source .venv/bin/activate` first. The error means pip is hitting system Python because the venv failed silently. |
-| `gh: command not found` after install | `which gh`; if missing, re-run the `apt install gh` step |
-| `aws: command not found` | Run the AWS CLI v2 bundle install from the bootstrap section |
-| `gh auth login` says "Failed opening a web browser" | Expected on a headless VM. Copy the one-time code shown, open `https://github.com/login/device` on your laptop, paste, approve. Terminal continues automatically. |
-| Any `gh` command says "no default remote repository" | `gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter`. Persists for the VM's gh config. |
+| `pip install` says "externally-managed-environment" | The venv isn't active. Run `source .venv/bin/activate` first. |
+| `gh: command not found` after install | `which gh`. If missing, re-run the apt install gh step. |
+| `aws: command not found` | Run the AWS CLI v2 bundle install from the bootstrap section. |
+| `gh auth login` says "Failed opening a web browser" | Expected on a headless VM. Copy the one-time code, open `https://github.com/login/device` on the laptop, paste, approve. |
+| Any gh command says "no default remote repository" | `gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter` |
 | `git commit` says "Please tell me who you are" | `git config --global user.name "Rabby" && git config --global user.email "..."` |
 | `pulumi up` fails on AWS API throttle | Re-run `pulumi up --yes` |
-| Stack state is dirty | `pulumi refresh --yes` then `pulumi up --yes` |
-| `pulumi up` says "incorrect passphrase" | `export PULUMI_CONFIG_PASSPHRASE=<whatever-you-used-at-stack-init>`. The default in this doc is `modelserve` but the actual binding is whatever you typed first. |
-| `ec2:RunInstances` denied for `t3.small` (or larger) | Sandbox SCP whitelist; `t2.micro` works. `pulumi config set modelserve:instance_type t2.micro` then re-run. |
-| Containers OOM-killed on `t2.micro` (1 GB RAM) | SSH in: `sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`. Then `docker compose up -d` to bring back killed services. user_data.sh now does this automatically on fresh boots. |
+| Stack state is dirty | `pulumi refresh --yes`, then `pulumi up --yes` |
+| `pulumi up` says "incorrect passphrase" | `export PULUMI_CONFIG_PASSPHRASE=modelserve` (or whatever was used at stack init). |
+| `ec2:RunInstances` denied for t3.small or larger | Sandbox SCP whitelist. t2.micro works. `pulumi config set modelserve:instance_type t2.micro`, re-run. |
+| Containers OOM-killed on t2.micro (1 GB RAM) | SSH in: `sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`. Then `docker compose up -d` to bring back killed services. user_data.sh does this on fresh boots. |
+| `iam:TagInstanceProfile` / `iam:CreateUser` denied | Sandbox SCP. defaultTags is removed from Pulumi.dev.yaml. CI uses sandbox creds directly (no dedicated CI user provisioned). |
 | EC2 user_data still booting when CI tries to SSH | `gh run rerun --failed` |
-| Kaggle dataset download flakes | SSH in, run the curl manually, re-trigger CI |
-| Pipeline fails on `test` (Python version mismatch) | Workflow pins 3.10 in the GitHub runner. Should pass even though VM has 3.12. If it fails, read the error and patch. |
-| `EC2_HOST` IP changed (re-provisioned) | `gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"`, then re-run the workflow |
+| Predict returns 500 with `FeatureViewNotFoundException: Feature view fraud_features does not exist` | Bind mount missing or registry.db not on host. Check `grep volumes docker-compose.yml`. If missing, the EC2 cloned an old branch. `git checkout main && docker compose up -d --force-recreate api`. If host's `feast_repo/data/registry.db` is missing, re-run `python scripts/materialize_features.py` and `docker compose restart api`. |
+| Kaggle dataset download flakes | SSH in, run the curl manually, re-trigger CI. |
+| Pipeline fails on test (Python version mismatch) | Workflow pins 3.10 in the GitHub runner. Should pass even though VM has 3.12. If it fails, read the error and patch. |
+| `EC2_HOST` IP changed (re-provisioned) | `gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"`, re-run the workflow. |
 | AWS creds expired mid-demo (sandbox token rotated) | Re-export `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. Re-set the four `gh secret set` commands. |
-| `pulumi destroy` fails on a resource | `pulumi destroy --target '<urn>' --yes` to skip; `aws s3 rm s3://<bucket> --recursive` if bucket is the blocker |
-| Forgot the passphrase | `pulumi stack rm dev --yes && pulumi stack init dev` and start over (~3 min lost). |
+| `pulumi destroy` fails on a resource | `pulumi destroy --target '<urn>' --yes` to skip. `aws s3 rm s3://<bucket> --recursive` if the bucket is the blocker. |
+| Forgot the passphrase | `pulumi stack rm dev --yes && pulumi stack init dev`, start over (~3 min lost). |
 
 ---
 
-## What to avoid
+## Things to avoid
 
 - `git pull` mid-demo. Code on the laptop matches the running pipeline only because nothing changed.
-- `pulumi up` again while CI is running. Race condition.
+- `pulumi up` while CI is running. Race condition.
 - `pulumi destroy` until the very end.
-- Editing locally to fix a failing CI job — re-trigger or re-run, debug after.
-- Apologizing for things that work. ("Took a couple seconds longer than usual" — TA doesn't care.)
+- Editing locally to fix a failing CI job. Re-trigger or re-run, debug after.
+- Apologizing for things that work. ("Took a couple seconds longer than usual" - TA doesn't care.)
 - Rabbit-holing on a question. Two-sentence answer, then continue.
-
----
-
-## What each phase proves
-
-| Phase | Proof |
-|---|---|
-| Pulumi up | Infrastructure-as-code, clean provision, tagged resources |
-| Push triggers CI | Three jobs in order, secrets configured, ECR populated |
-| /health and /predict | The system actually works end-to-end |
-| Grafana populated | Observability is wired (provisioned datasource, dashboard, scrape) |
-| Alert fires when api dies | Alerts are real, not just configured |
-| Rollback / new push | Pipeline is re-runnable, deploys are reversible |
-| Pulumi destroy | Clean teardown, nothing dangling |
-
----
-
-*Print it. Read it on the bus.*

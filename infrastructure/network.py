@@ -2,7 +2,7 @@
 import pulumi_aws as aws
 
 
-# DNS hostnames on so EC2 instances get a public DNS name, not just an IP.
+# DNS hostnames so EC2 instances get a public DNS name, not just an IP.
 vpc = aws.ec2.Vpc(
     "modelserve",
     cidr_block="10.0.0.0/16",
@@ -10,11 +10,9 @@ vpc = aws.ec2.Vpc(
     enable_dns_support=True,
 )
 
-# Door to the internet.
 igw = aws.ec2.InternetGateway("modelserve-igw", vpc_id=vpc.id)
 
-# Public subnet — map_public_ip_on_launch means new instances get a public IP
-# without needing to attach an EIP.
+# map_public_ip_on_launch=True so instances get a public IP without an EIP.
 public_subnet = aws.ec2.Subnet(
     "modelserve-public",
     vpc_id=vpc.id,
@@ -22,23 +20,22 @@ public_subnet = aws.ec2.Subnet(
     map_public_ip_on_launch=True,
 )
 
-# Default route -> IGW. Without this rule the subnet is effectively private.
+# Default route to IGW. Without this the subnet is effectively private.
 route_table = aws.ec2.RouteTable(
     "modelserve-public-rt",
     vpc_id=vpc.id,
     routes=[{"cidr_block": "0.0.0.0/0", "gateway_id": igw.id}],
 )
 
-# Bind the subnet to the route table. Without the association the route is
-# defined but unused.
+# Without the association the route is defined but unused.
 aws.ec2.RouteTableAssociation(
     "modelserve-public-rta",
     subnet_id=public_subnet.id,
     route_table_id=route_table.id,
 )
 
-# All ports open to the world — sandbox only. In prod: scope SSH to a CIDR,
-# put 8000/3000/5000/9090 behind an ALB with TLS.
+# All ports open. Sandbox only. In prod: scope SSH to a CIDR, put services
+# behind an ALB with TLS.
 security_group = aws.ec2.SecurityGroup(
     "modelserve-sg",
     description="ModelServe service ports",
@@ -51,10 +48,10 @@ security_group = aws.ec2.SecurityGroup(
         {"protocol": "tcp", "from_port": 9090, "to_port": 9090, "cidr_blocks": ["0.0.0.0/0"], "description": "Prometheus"},
     ],
     egress=[{
-        "protocol": "-1",   # -1 = all protocols (TCP/UDP/ICMP/...)
+        "protocol": "-1",   # -1 = all protocols
         "from_port": 0,
         "to_port": 0,
         "cidr_blocks": ["0.0.0.0/0"],
-        "description": "all outbound (ECR pull, git clone, Kaggle, etc.)",
+        "description": "all outbound (ECR pull, git clone, Kaggle)",
     }],
 )

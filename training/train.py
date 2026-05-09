@@ -1,10 +1,10 @@
-"""ModelServe — fraud-detection training script.
+"""Fraud-detection training script.
 
-Loads the Kaggle fraudTrain.csv, engineers a small numeric feature set,
-trains a RandomForest baseline, logs everything to MLflow, registers the
-model under MODEL_NAME, and promotes the new version to Production.
+Loads fraudTrain.csv, engineers a small numeric feature set, trains a
+RandomForest baseline, logs to MLflow, registers under MODEL_NAME, and
+promotes to Production.
 
-Side effects (consumed by Feast + the FastAPI demo):
+Also writes (consumed by Feast and the API):
     training/features.parquet     one row per cc_num (latest event)
     training/sample_request.json  a valid POST /predict body
 """
@@ -37,9 +37,7 @@ from sklearn.model_selection import train_test_split
 
 warnings.filterwarnings("ignore")
 
-# ---------------------------------------------------------------------------
-# Configuration (override via env)
-# ---------------------------------------------------------------------------
+# Config (override via env)
 DATA_PATH = Path(os.environ.get("FRAUD_DATA_PATH", "fraud-detection/fraudTrain.csv"))
 SAMPLE_SIZE = int(os.environ.get("SAMPLE_SIZE", "200000"))
 RANDOM_STATE = 42
@@ -69,9 +67,7 @@ FEATURES = [
 ]
 
 
-# ---------------------------------------------------------------------------
 # Steps
-# ---------------------------------------------------------------------------
 def load_and_engineer(path: Path) -> pd.DataFrame:
     """Load fraudTrain.csv and engineer a purely numeric feature set."""
     df = pd.read_csv(path)
@@ -131,7 +127,7 @@ def train_model(df: pd.DataFrame) -> tuple[RandomForestClassifier, dict, dict]:
 
 
 def export_feast_artifacts(df: pd.DataFrame) -> int:
-    """One row per cc_num (latest event) — what Feast will materialize."""
+    """One row per cc_num (latest event). Feast materializes from this."""
     feature_df = (
         df.sort_values("trans_date_trans_time")
         .drop_duplicates("cc_num", keep="last")
@@ -162,9 +158,7 @@ def promote_latest_to_stage(client: MlflowClient, name: str, stage: str) -> str:
     return latest.version
 
 
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
 def main() -> None:
     if not DATA_PATH.exists():
         raise SystemExit(

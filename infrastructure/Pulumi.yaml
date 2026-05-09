@@ -1,19 +1,11 @@
-# Pulumi project descriptor.
-#
-# Pulumi looks for this file when you run any `pulumi` command from
-# inside the `infrastructure/` directory. It tells Pulumi:
-#   - what the project is called (used as a state key)
-#   - what runtime to use (python -> __main__.py is the entry point)
-#   - which Python venv to activate so dependencies are reachable
-# Stack-specific values (region, tags, instance size) live in
-# Pulumi.<stack>.yaml — see Pulumi.dev.yaml.
+# Pulumi project descriptor. Read by any `pulumi` command from this directory.
+# Stack-specific values live in Pulumi.<stack>.yaml.
 
 name: modelserve
 description: AWS infrastructure for the ModelServe inference platform.
 runtime:
   name: python
   options:
-    # Pulumi will activate infrastructure/.venv before importing
-    # __main__.py, so `pulumi up` works without you sourcing the venv
-    # manually. Path is relative to this Pulumi.yaml.
+    # Pulumi auto-activates infrastructure/.venv before loading __main__.py,
+    # so `pulumi up` works without sourcing the venv manually.
     virtualenv: .venv

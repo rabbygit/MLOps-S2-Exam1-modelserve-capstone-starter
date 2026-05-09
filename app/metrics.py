@@ -1,8 +1,8 @@
 """Prometheus metrics for the inference service.
 
-A dedicated CollectorRegistry is used (instead of the global default) so
-that test runs and uvicorn reloads can re-import this module without
-hitting "Duplicated timeseries" errors.
+Dedicated CollectorRegistry instead of the global default. Test runs
+and uvicorn reloads can re-import this module without hitting
+"Duplicated timeseries" errors.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ PREDICTION_ERRORS = Counter(
 
 MODEL_VERSION_INFO = Gauge(
     "model_version_info",
-    "Currently served model version — set once on startup.",
+    "Currently served model version. Set once on startup.",
     labelnames=("version",),
     registry=REGISTRY,
 )

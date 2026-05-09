@@ -149,10 +149,10 @@ the EC2 host. The same `docker-compose.yml` runs there, with two env-var overrid
    ║             │ MLflow artifact uploads via boto3 in mlflow container    ║
    ║             │ (creds from EC2 IAM role via IMDS)                       ║
    ║             │                                                          ║
-   ║  ┌──────────┴───────────┐                                              ║
-   ║  │ IAM: ci user (S5)    │  Provisioned for S8-9 GitHub Actions.        ║
-   ║  │  ECR push perms      │  Access keys exported as Pulumi secrets.     ║
-   ║  └──────────────────────┘                                              ║
+   ║                                                                      ║
+   ║  CI auth: sandbox AWS creds passed straight to GitHub Secrets.       ║
+   ║  Production-shape would have a dedicated `ci` IAM user with scoped   ║
+   ║  ECR-push perms. Sandbox SCP denies iam:CreateUser, so it's omitted. ║
    ╚═════════════════════════════════════════════════════════════════════╝
 
 External dependencies (off-AWS):

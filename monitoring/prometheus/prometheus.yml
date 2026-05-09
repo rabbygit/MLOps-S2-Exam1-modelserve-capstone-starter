@@ -1,42 +1,36 @@
-# Prometheus configuration for ModelServe.
+# Prometheus config for ModelServe.
 #
-# This file is mounted into the prometheus container at
-# /etc/prometheus/prometheus.yml. All paths inside this file are
-# container-internal. Host-side, the source path is
-# monitoring/prometheus/prometheus.yml (see docker-compose.yml).
+# Mounted at /etc/prometheus/prometheus.yml inside the container.
+# Source on the host: monitoring/prometheus/prometheus.yml.
 
 global:
-  # How often Prometheus pulls /metrics from each target. 15s is a
-  # reasonable default for dev — production might tighten this to 5-10s
-  # for high-cardinality services or relax it to 30-60s to save storage.
+  # How often Prometheus pulls /metrics from each target.
   scrape_interval: 15s
 
-  # How often the alerting rules are evaluated. Keep this >= scrape_interval
-  # so each evaluation has fresh data.
+  # How often alert rules are evaluated. Keep >= scrape_interval so each
+  # evaluation has fresh data.
   evaluation_interval: 15s
 
-  # Hard cap per scrape — protects Prometheus if a target hangs.
+  # Hard cap per scrape so a hanging target doesn't tie up the scraper.
   scrape_timeout: 10s
 
-# Alert rule files — loaded at startup. Glob patterns are allowed.
+# Alert rule files. Glob patterns allowed.
 rule_files:
   - /etc/prometheus/alerts.yml
 
-# Scrape jobs. Each job_name groups metrics by the source service —
-# Prometheus adds a `job=<job_name>` label to every series scraped from
-# that group, which is what alerts and dashboards filter on.
+# Scrape jobs. job_name becomes a `job=<name>` label on every scraped series,
+# which is what alerts and dashboards filter on.
 scrape_configs:
 
-  # Prometheus self-scrape. Useful for debugging the scraper itself
-  # (`up{job="prometheus"}`, `prometheus_tsdb_head_series`, etc.).
+  # Self-scrape. Useful for debugging the scraper itself
+  # (up{job="prometheus"}, prometheus_tsdb_head_series, etc).
   - job_name: prometheus
     static_configs:
       - targets:
           - localhost:9090
 
-  # FastAPI inference service. The /metrics endpoint is implemented in
-  # app/metrics.py and registered in app/main.py. The hostname `api`
-  # resolves via the Docker compose network DNS.
+  # FastAPI inference service. /metrics is in app/metrics.py and routed
+  # in app/main.py. `api` resolves via Docker compose DNS.
   - job_name: modelserve-api
     metrics_path: /metrics
     static_configs:

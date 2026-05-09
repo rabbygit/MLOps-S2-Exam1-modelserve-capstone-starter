@@ -1,4 +1,4 @@
-# --- Local Python environment & build artefacts -----------------------------
+# Local Python environment + build artefacts
 .venv/
 venv/
 env/
@@ -11,47 +11,47 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# --- Datasets (huge, only needed by training/train.py on the host) ---------
+# Datasets. Big and only used by training/train.py on the host.
 fraud-detection/
 
-# --- MLflow local backend (used only when running the server outside docker)
+# MLflow local backend (only created when running the server outside docker).
 mlruns/
 mlflow.db
 mlartifacts/
 
-# --- Feast generated state (registry.db IS still copied — see note below) --
+# Feast generated state.
 feast_repo/data/online_store.db
-# NOTE: feast_repo/data/registry.db is intentionally NOT ignored — the
-# inference image must contain it to serve predictions.
+# feast_repo/data/registry.db is intentionally NOT ignored: the inference
+# image needs it to serve predictions.
 
-# --- Secrets and host-only env ---------------------------------------------
+# Secrets, host-only env
 .env
 .env.local
 .env.*.local
 *.pem
 *.key
 
-# --- Editor & OS noise ------------------------------------------------------
+# Editor / OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
 
-# --- Git internals (Docker doesn't need them) ------------------------------
+# Git internals (docker doesn't need them)
 .git/
 .gitignore
 .github/
 
-# --- Pulumi / IaC (Sessions 5-7) -------------------------------------------
+# Pulumi
 infrastructure/.pulumi/
 infrastructure/Pulumi.*.yaml
 infrastructure/node_modules/
 
-# --- Documentation ---------------------------------------------------------
+# Docs
 docs/
 README.md
 *.md
 
-# --- Test outputs ----------------------------------------------------------
+# Test outputs
 .coverage
 htmlcov/

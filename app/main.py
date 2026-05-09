@@ -1,9 +1,9 @@
 """FastAPI inference service for the fraud-detection model.
 
-Wires together the three collaborators built in the previous files:
-  - ModelLoader   — loads the model from the MLflow Registry on startup
-  - FeatureClient — fetches features from Feast/Redis at request time
-  - metrics       — Prometheus counters/histograms exposed on /metrics
+Three collaborators:
+  ModelLoader    - loads the model from MLflow Registry on startup
+  FeatureClient  - fetches features from Feast/Redis at request time
+  metrics        - Prometheus counters/histograms on /metrics
 """
 from __future__ import annotations
 
@@ -30,20 +30,18 @@ from app.metrics import (
 )
 from app.model_loader import ModelLoader
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
 # Pydantic schemas
-# ---------------------------------------------------------------------------
 class PredictRequest(BaseModel):
     entity_id: int = Field(..., description="cc_num of the cardholder.")
 
 
 class PredictResponse(BaseModel):
-    # Pydantic v2 reserves `model_` as a protected namespace; opt out so we can
-    # use `model_version` in the response body without a warning.
+    # Pydantic v2 reserves `model_` as a protected namespace. Opt out so
+    # `model_version` works as a field name without a warning.
     model_config = ConfigDict(protected_namespaces=())
 
     prediction: int
@@ -53,9 +51,7 @@ class PredictResponse(BaseModel):
     features: dict | None = None
 
 
-# ---------------------------------------------------------------------------
-# Lifespan — load model + feature store once, before the first request
-# ---------------------------------------------------------------------------
+# Lifespan: load model + feature store once, before serving any request.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")
@@ -72,16 +68,14 @@ async def lifespan(app: FastAPI):
 
     app.state.model_loader = loader
     app.state.feature_client = feature_client
-    logger.info("Service ready — model v%s loaded.", loader.version)
+    logger.info("Service ready. Model v%s loaded.", loader.version)
     yield
 
 
-app = FastAPI(title="ModelServe — Fraud Detection API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="ModelServe - Fraud Detection API", version="0.2.0", lifespan=lifespan)
 
 
-# ---------------------------------------------------------------------------
-# Dependencies — read from app.state so tests can override
-# ---------------------------------------------------------------------------
+# Dependencies. Read from app.state so tests can override.
 def get_model_loader(request: Request) -> ModelLoader:
     return request.app.state.model_loader
 
@@ -90,9 +84,7 @@ def get_feature_client(request: Request) -> FeatureClient:
     return request.app.state.feature_client
 
 
-# ---------------------------------------------------------------------------
-# Core prediction logic, shared by GET and POST handlers
-# ---------------------------------------------------------------------------
+# Shared by GET and POST handlers.
 def _do_predict(
     entity_id: int,
     loader: ModelLoader,
@@ -121,9 +113,7 @@ def _do_predict(
     )
 
 
-# ---------------------------------------------------------------------------
 # Endpoints
-# ---------------------------------------------------------------------------
 @app.get("/health")
 def health(loader: ModelLoader = Depends(get_model_loader)) -> dict:
     return {"status": "healthy", "model_version": loader.version}

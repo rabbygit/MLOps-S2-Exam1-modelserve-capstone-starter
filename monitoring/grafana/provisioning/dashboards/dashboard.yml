@@ -1,32 +1,28 @@
-# Grafana dashboard *provider* configuration.
+# Grafana dashboard *provider* config.
 #
-# Mounted at /etc/grafana/provisioning/dashboards/dashboard.yml inside
-# the Grafana container. This file does NOT contain a dashboard — it
-# tells Grafana WHERE to look for dashboard JSON files. The actual
-# dashboards live next to it (monitoring/grafana/dashboards/
-# modelserve.json) and are mounted into the container at the path
-# referenced by `options.path` below.
+# Mounted at /etc/grafana/provisioning/dashboards/dashboard.yml. This file
+# does NOT contain a dashboard. It tells Grafana where to look for
+# dashboard JSONs. The actual dashboards live in
+# monitoring/grafana/dashboards/ and are mounted into the container at
+# `options.path` below.
 
 apiVersion: 1
 
 providers:
   - name: modelserve
-    # `file` provider = read .json dashboards from a local directory.
+    # `file` = read .json dashboards from a local directory.
     type: file
-    # Folder shown in the Grafana UI sidebar. "" = top-level "General".
+    # Folder shown in the UI sidebar. "" = top-level General.
     folder: ""
-    # How often Grafana rescans the directory for added/changed files.
-    # 10s is fine for dev; production usually 30-60s.
+    # How often Grafana rescans for added/changed files. 10s for dev,
+    # 30-60s in prod.
     updateIntervalSeconds: 10
-    # Lets the user save tweaks made in the UI back to the .json on
-    # disk. Useful while iterating; flip to false in prod so the
-    # provisioning file stays the source of truth.
+    # Lets the UI save tweaks back to the .json on disk. Off in prod so
+    # the provisioning file stays the source of truth.
     allowUiUpdates: true
     options:
-      # Container-internal path where the dashboard JSONs are mounted.
-      # Compose will bind monitoring/grafana/dashboards (host) to this.
+      # Container-internal path where dashboard JSONs are mounted.
       path: /var/lib/grafana/dashboards
-      # Optional: when true, dashboards added to the file system show
-      # up in Grafana folders matching their subdirectory. Off here
-      # because we have a flat single-folder layout.
+      # If true, subdirectories show up as folders in the UI. Off here;
+      # flat layout.
       foldersFromFilesStructure: false

@@ -1,8 +1,8 @@
-"""End-to-end Feast online lookup smoke test.
+"""Feast online-lookup smoke test.
 
-Reads sample_request.json, asks Feast for the entity's features, and
-prints them. Useful as a fast 'is the pipeline working?' check after
-running materialize_features.py.
+Reads sample_request.json, asks Feast for the entity's features, prints
+them. Quick check that the pipeline is wired after running
+materialize_features.py.
 """
 from __future__ import annotations
 

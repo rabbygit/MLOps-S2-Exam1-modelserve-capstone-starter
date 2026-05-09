@@ -1,22 +1,13 @@
-# Pulumi infrastructure dependencies
+# Pulumi infrastructure dependencies. Lives in infrastructure/.venv so it
+# doesn't tangle with the project's host venv (mlflow/feast/etc.).
 #
-# Installed inside infrastructure/.venv (separate from the project's host
-# venv) so Pulumi's Python runtime doesn't interfere with mlflow/feast
-# versions on your machine. Bootstrap once per fresh clone:
-#
+# Bootstrap (once per fresh clone):
 #     cd infrastructure
 #     python -m venv .venv && source .venv/bin/activate
 #     pip install -r requirements.txt
-#
-# Pulumi auto-detects this venv via Pulumi.yaml's `runtime.options.virtualenv`
-# field, so subsequent `pulumi up` calls find these packages without
-# re-activating the venv yourself.
 
-# Core SDK — defines pulumi.Output, pulumi.export, the Resource base class.
-# pulumi-aws 6.66 needs pulumi >= 3.142, so use a compatible range.
+# Core SDK. pulumi-aws 6.66 needs pulumi >= 3.142, so use a range.
 pulumi>=3.142.0,<4.0.0
 
-# AWS provider — gives you aws.s3.Bucket, aws.ec2.Instance, aws.iam.User,
-# etc. Built on top of Pulumi's core SDK and the AWS Terraform provider
-# under the hood.
+# AWS provider. Wraps the AWS Terraform provider under the hood.
 pulumi-aws>=6.66.0,<7.0.0

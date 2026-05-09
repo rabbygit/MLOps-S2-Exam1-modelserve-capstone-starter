@@ -17,30 +17,30 @@ htmlcov/
 # Kaggle dataset (downloaded locally, never committed)
 /fraud-detection/*
 
-# MLflow local file backends (only created if someone runs `mlflow ui` locally)
+# MLflow local file backends (only created if running `mlflow ui` locally)
 mlartifacts/
 mlruns/
 
-# NOTE: training/features.parquet and training/sample_request.json are NOT
-# ignored — they are produced by train.py and committed so a fresh clone can
-# bootstrap Feast and the TA's curl test without re-running training first.
+# training/features.parquet and training/sample_request.json are NOT
+# ignored. They're produced by train.py and committed so a fresh clone
+# can bootstrap Feast and the TA's curl test without re-training first.
 
 # Feast generated state (created by `feast apply` / `materialize`)
 feast_repo/data/registry.db
 feast_repo/data/online_store.db
 feast_repo/.feast/
 
-# Pulumi (Sessions 5-7)
-# - Pulumi.yaml AND Pulumi.<stack>.yaml are committed. Stack config in
-#   Pulumi.dev.yaml is the canonical record of how the stack was set up;
-#   any `--secret` config values are encrypted with the project passphrase
-#   before being written to disk, so they're safe in git.
-# - State files (.pulumi/) live outside the repo when using `pulumi login
-#   --local` (default: ~/.pulumi/). Listed below as defence-in-depth in
-#   case someone runs `pulumi login file://./`.
-# - SSH keys generated for the EC2 (S6) live in infrastructure/keys/
-#   and never enter git — *.pem / *.key already cover the private key,
-#   the directory pattern catches anything else (config, known_hosts).
+# Pulumi
+# Pulumi.yaml AND Pulumi.<stack>.yaml are committed. Stack config in
+# Pulumi.dev.yaml is the canonical record of how the stack was set up.
+# `--secret` config values are encrypted with the project passphrase
+# before being written, so they're safe in git.
+# State files (.pulumi/) live outside the repo when using `pulumi login
+# --local` (default: ~/.pulumi/). Listed below as a guard in case
+# someone runs `pulumi login file://./`.
+# SSH keys for EC2 live in infrastructure/keys/ and never enter git.
+# *.pem / *.key cover the private key; the directory pattern catches
+# anything else (config, known_hosts).
 infrastructure/.venv/
 infrastructure/.pulumi/
 infrastructure/Pulumi.*.yaml.bak

@@ -8,7 +8,7 @@ from registry import repository
 from storage import bucket
 
 
-# Only the EC2 service can assume this role.
+# Only EC2 can assume this role.
 trust_policy = json.dumps({
     "Version": "2012-10-17",
     "Statement": [{
@@ -21,14 +21,14 @@ trust_policy = json.dumps({
 role = aws.iam.Role(
     "ec2-host-role",
     assume_role_policy=trust_policy,
-    # Sandbox SCP denies iam:UntagRole. The Role got created earlier with
-    # the (now-removed) defaultTags; ignore_changes skips the diff so
+    # Sandbox SCP denies iam:UntagRole. The Role was created earlier with
+    # the (now-removed) defaultTags. ignore_changes skips the diff so
     # Pulumi doesn't try to untag it.
     opts=pulumi.ResourceOptions(ignore_changes=["tags", "tagsAll"]),
 )
 
-# ECR pull (scoped to our repo + the global token call) and S3 r/w to the
-# MLflow artifact bucket. Inline policy so it auto-deletes with the role.
+# ECR pull (scoped to our repo + the global token) and S3 r/w to the
+# artifact bucket. Inline so it auto-deletes with the role.
 policy = aws.iam.RolePolicy(
     "ec2-host-policy",
     role=role.id,
@@ -63,5 +63,5 @@ policy = aws.iam.RolePolicy(
     }),
 )
 
-# Wraps the role so EC2 can attach it via iam_instance_profile.
+# EC2 attaches the InstanceProfile, not the Role directly.
 instance_profile = aws.iam.InstanceProfile("ec2-host-profile", role=role.name)
