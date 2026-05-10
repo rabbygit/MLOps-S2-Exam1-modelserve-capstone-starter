@@ -14,10 +14,6 @@ config = pulumi.Config()
 aws_config = pulumi.Config("aws")
 THIS_DIR = Path(__file__).resolve().parent
 
-# Latest AL2023 ECS-hvm AMI. The sandbox catalogue only exposes variants
-# (ecs-hvm / minimal / neuron), not the standard AL2023 image. ecs-hvm
-# is fine: AL2023 + Docker + ECS agent. Our user_data reconfigures docker
-# anyway, and the ECS agent sits idle without a cluster.
 ami = aws.ec2.get_ami(
     most_recent=True,
     owners=["amazon"],

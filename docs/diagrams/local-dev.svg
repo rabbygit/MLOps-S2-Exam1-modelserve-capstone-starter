@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
+    </marker>
+    <style>
+      .title    { font-size: 20px; font-weight: 600; fill: #1a1a1a; }
+      .subtitle { font-size: 12px; fill: #555; }
+      .label    { font-size: 13px; fill: #1a1a1a; }
+      .port     { font-size: 11px; fill: #555; font-family: 'SF Mono', Menlo, monospace; }
+      .edge     { font-size: 11px; fill: #555; }
+      .legend   { font-size: 11px; fill: #444; font-family: 'SF Mono', Menlo, monospace; }
+      .svc-name { font-size: 14px; font-weight: 600; fill: #1a1a1a; }
+    </style>
+  </defs>
+
+  <rect width="980" height="720" fill="#fafafa"/>
+
+  <text x="40" y="36" class="title">Local Development</text>
+  <text x="40" y="56" class="subtitle">docker compose up -d   ·   single Docker network on the laptop, no AWS</text>
+
+  <!-- Developer laptop outer container -->
+  <rect x="30" y="80" width="920" height="540" rx="8" fill="#ffffff" stroke="#bbb" stroke-width="1.5"/>
+  <text x="48" y="102" font-size="12" fill="#888" font-weight="600">Developer laptop</text>
+
+  <!-- Inputs -->
+  <rect x="60" y="120" width="90" height="32" rx="4" fill="#fff" stroke="#888"/>
+  <text x="105" y="140" text-anchor="middle" class="label">curl</text>
+  <rect x="170" y="120" width="120" height="32" rx="4" fill="#fff" stroke="#888"/>
+  <text x="230" y="140" text-anchor="middle" class="label">Host browser</text>
+
+  <!-- Docker network box -->
+  <rect x="60" y="180" width="860" height="380" rx="8" fill="#f4f8fc" stroke="#7a9fc2" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="76" y="202" font-size="12" fill="#3a6b9a" font-weight="600">Docker network: modelserve</text>
+
+  <!-- api (top center) -->
+  <rect x="420" y="220" width="160" height="64" rx="6" fill="#d4e5f7" stroke="#1f4d8a" stroke-width="1.5"/>
+  <text x="500" y="244" text-anchor="middle" class="svc-name">api</text>
+  <text x="500" y="262" text-anchor="middle" class="port">FastAPI · :8000</text>
+  <text x="500" y="276" text-anchor="middle" class="port">/predict  /metrics</text>
+
+  <!-- redis (left) -->
+  <rect x="100" y="330" width="160" height="56" rx="6" fill="#d4f7d4" stroke="#2d6e2d" stroke-width="1.5"/>
+  <text x="180" y="354" text-anchor="middle" class="svc-name">redis</text>
+  <text x="180" y="372" text-anchor="middle" class="port">:6379  ·  online features</text>
+
+  <!-- mlflow (center) -->
+  <rect x="420" y="330" width="160" height="56" rx="6" fill="#d4e5f7" stroke="#1f4d8a" stroke-width="1.5"/>
+  <text x="500" y="354" text-anchor="middle" class="svc-name">mlflow</text>
+  <text x="500" y="372" text-anchor="middle" class="port">:5000  ·  registry + UI</text>
+
+  <!-- postgres (right) -->
+  <rect x="740" y="330" width="160" height="56" rx="6" fill="#d4f7d4" stroke="#2d6e2d" stroke-width="1.5"/>
+  <text x="820" y="354" text-anchor="middle" class="svc-name">postgres</text>
+  <text x="820" y="372" text-anchor="middle" class="port">:5432  ·  mlflow metadata</text>
+
+  <!-- prometheus (left) -->
+  <rect x="100" y="450" width="200" height="56" rx="6" fill="#f7e5d4" stroke="#8a4d1f" stroke-width="1.5"/>
+  <text x="200" y="474" text-anchor="middle" class="svc-name">prometheus</text>
+  <text x="200" y="492" text-anchor="middle" class="port">:9090  ·  scrapes /metrics</text>
+
+  <!-- grafana (right) -->
+  <rect x="380" y="450" width="200" height="56" rx="6" fill="#f7e5d4" stroke="#8a4d1f" stroke-width="1.5"/>
+  <text x="480" y="474" text-anchor="middle" class="svc-name">grafana</text>
+  <text x="480" y="492" text-anchor="middle" class="port">:3000  ·  dashboards · alerts</text>
+
+  <!-- Edges from inputs to api -->
+  <path d="M 105 152 L 105 200 L 460 200 L 460 220" fill="none" stroke="#555" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <path d="M 230 152 L 230 200 L 540 200 L 540 220" fill="none" stroke="#555" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+  <!-- api -> redis -->
+  <path d="M 420 268 C 320 268, 260 300, 260 330" fill="none" stroke="#555" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="295" y="312" class="edge">features</text>
+
+  <!-- api -> mlflow -->
+  <path d="M 500 284 L 500 330" fill="none" stroke="#555" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="510" y="312" class="edge">model lookup</text>
+
+  <!-- mlflow -> postgres -->
+  <path d="M 580 358 L 740 358" fill="none" stroke="#555" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="640" y="350" class="edge">metadata</text>
+
+  <!-- prometheus -> api (scrape) -->
+  <path d="M 200 450 C 200 410, 300 380, 420 260" fill="none" stroke="#555" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <text x="240" y="430" class="edge">scrape</text>
+
+  <!-- grafana -> prometheus -->
+  <path d="M 380 478 L 300 478" fill="none" stroke="#555" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="320" y="470" class="edge">query</text>
+
+  <!-- Volumes legend -->
+  <rect x="620" y="450" width="280" height="90" rx="6" fill="#ffffff" stroke="#bbb" stroke-dasharray="3 2"/>
+  <text x="634" y="470" font-size="12" fill="#444" font-weight="600">Persistent volumes</text>
+  <text x="634" y="490" class="legend">postgres_data    redis_data</text>
+  <text x="634" y="506" class="legend">mlflow_artifacts</text>
+  <text x="634" y="522" class="legend">prometheus_data  grafana_data</text>
+
+  <!-- Bottom legend: localhost -->
+  <text x="48" y="595" font-size="12" fill="#444" font-weight="600">Reachable from the host browser:</text>
+  <text x="48" y="612" class="legend">localhost:8000/docs   localhost:5000   localhost:3000   localhost:9090</text>
+</svg>
