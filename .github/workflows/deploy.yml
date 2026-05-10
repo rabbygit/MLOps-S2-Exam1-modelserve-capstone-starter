@@ -177,6 +177,12 @@ jobs:
           set -e
           cd modelserve
 
+          # Defensive chown. user_data runs as root and is supposed to chown
+          # at the end. If bootstrap failed mid-way or files were touched by
+          # root afterwards, .env may still be root-owned and the writes below
+          # would fail with "Permission denied".
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/modelserve
+
           # Update API_IMAGE in .env (replace if present, append if not).
           if grep -q '^API_IMAGE=' .env; then
             sed -i "s|^API_IMAGE=.*|API_IMAGE=${NEW_IMAGE}|" .env

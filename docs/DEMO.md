@@ -66,9 +66,6 @@ Then auth and identity:
 # gh login (browser-based one-time code, copy code into laptop browser)
 gh auth login -h github.com -s repo,workflow -w
 
-# Set default repo so gh secret set / gh run watch work
-gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter
-
 # Git identity (needed for git commit)
 git config --global user.name "Rabby"
 git config --global user.email "<your-github-email>"
@@ -135,6 +132,9 @@ cd ..
 # Empty commit to trigger CI
 git commit --allow-empty -m "demo trigger"
 git push origin main
+
+# Set default repo so gh secret set / gh run watch work
+gh repo set-default rabbygit/MLOps-S2-Exam1-modelserve-capstone-starter
 
 # Watch the run
 gh run watch
@@ -337,6 +337,7 @@ All 23 AWS resources destroyed. force_delete on ECR handles the non-empty repo. 
 | `iam:TagInstanceProfile` / `iam:CreateUser` denied | Sandbox SCP. defaultTags is removed from Pulumi.dev.yaml. CI uses sandbox creds directly (no dedicated CI user provisioned). |
 | EC2 user_data still booting when CI tries to SSH | `gh run rerun --failed` |
 | Predict returns 500 with `FeatureViewNotFoundException: Feature view fraud_features does not exist` | Bind mount missing or registry.db not on host. Check `grep volumes docker-compose.yml`. If missing, the EC2 cloned an old branch. `git checkout main && docker compose up -d --force-recreate api`. If host's `feast_repo/data/registry.db` is missing, re-run `python scripts/materialize_features.py` and `docker compose restart api`. |
+| CI deploy fails with `bash: line N: .env: Permission denied` | `.env` on the EC2 is root-owned. user_data's final `chown -R` didn't run. SSH in: `sudo chown -R ec2-user:ec2-user /home/ec2-user/modelserve`. The workflow now does this defensively before writing .env. |
 | Kaggle dataset download flakes | SSH in, run the curl manually, re-trigger CI. |
 | Pipeline fails on test (Python version mismatch) | Workflow pins 3.10 in the GitHub runner. Should pass even though VM has 3.12. If it fails, read the error and patch. |
 | `EC2_HOST` IP changed (re-provisioned) | `gh secret set EC2_HOST -b "$(pulumi stack output ec2_public_ip)"`, re-run the workflow. |
